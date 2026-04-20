@@ -1,6 +1,7 @@
 import { query } from '../database/connection';
 import { v4 as uuidv4 } from 'uuid';
 import logger from '../logging/logger';
+import * as progressTrackingService from './progressTrackingService';
 
 // MARK: - Types
 
@@ -434,6 +435,31 @@ export async function completeWorkout(workoutId: string, userId: string): Promis
       sets: row.sets || [],
       totalVolume: row.total_volume || 0,
     }));
+
+    // Check for personal records for each exercise
+    for (const exercise of workout.exercises) {
+      if (exercise.sets && exercise.sets.length > 0) {
+        // Get max weight and reps from sets
+        const maxSet = exercise.sets.reduce(
+          (max, set) => {
+            if (set.weight > max.weight || (set.weight === max.weight && set.reps > max.reps)) {
+              return set;
+            }
+            return max;
+          },
+          { weight: 0, reps: 0 }
+        );
+
+        if (maxSet.weight > 0) {
+          await progressTrackingService.updatePersonalRecordIfNeeded(
+            userId,
+            exercise.exerciseId,
+            maxSet.weight,
+            maxSet.reps
+          );
+        }
+      }
+    }
 
     logger.info('Workout completed', { workoutId, userId, xpEarned });
 

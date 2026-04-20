@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import * as workoutService from '../services/workoutService';
+import * as activityFeedService from '../services/activityFeedService';
 import logger from '../logging/logger';
 
 const router = Router();
@@ -160,6 +161,18 @@ router.post('/:id/complete', requireAuth, async (req: Request, res: Response) =>
     const { id } = req.params;
 
     const workout = await workoutService.completeWorkout(id, userId);
+
+    // Create activity feed entry
+    await activityFeedService.createActivityFeedEntry(
+      userId,
+      'WORKOUT_COMPLETED',
+      id,
+      {
+        totalVolume: workout.totalVolume,
+        totalXP: workout.totalXP,
+        exerciseCount: workout.exercises.length,
+      }
+    );
 
     res.json(workout);
   } catch (error) {

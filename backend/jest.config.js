@@ -19,4 +19,12 @@ module.exports = {
     },
   },
   testTimeout: 10000,
+  transform: {
+    '^.+\\.tsx?$': ['ts-jest', {
+      tsconfig: {
+        skipLibCheck: true,
+        noImplicitAny: false,
+      },
+    }],
+  },
 };

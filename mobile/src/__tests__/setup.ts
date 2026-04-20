@@ -89,6 +89,13 @@ const mockAxios = {
   default: {
     create: jest.fn(() => mockAxiosInstance),
   },
+  isAxiosError: jest.fn((error: any) => {
+    return error && error.isAxiosError === true;
+  }),
+  get: jest.fn(),
+  post: jest.fn(),
+  put: jest.fn(),
+  delete: jest.fn(),
 };
 
 jest.mock('axios', () => mockAxios);
@@ -127,6 +134,15 @@ const createMockExerciseRow = (exercise: any) => ({
 
 jest.mock('@database/DatabaseManager', () => mockDatabaseManager);
 
+// Mock SyncEngine
+const mockSyncEngine = {
+  queueOperation: jest.fn(async () => Promise.resolve()),
+};
+
+jest.mock('../services/SyncEngine', () => ({
+  SyncEngine: mockSyncEngine,
+}));
+
 // Mock Config
 jest.mock('@config/Config', () => ({
   apiBaseURL: 'http://localhost:3000/api',
@@ -153,7 +169,13 @@ jest.mock('react-native-uuid', () => ({
 }));
 
 // Export mocks for use in tests
-export { mockAsyncStorage, mockKeychain, mockAxiosInstance, mockDatabaseManager, createMockExerciseRow };
+export { mockAsyncStorage, mockKeychain, mockAxiosInstance, mockDatabaseManager, createMockExerciseRow, mockSyncEngine };
+
+// Also export the axios mock methods for direct use
+export const mockAxiosGet = mockAxios.get;
+export const mockAxiosPost = mockAxios.post;
+export const mockAxiosPut = mockAxios.put;
+export const mockAxiosDelete = mockAxios.delete;
 
 // Suppress console errors in tests
 const originalError = console.error;

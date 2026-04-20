@@ -130,6 +130,16 @@ CREATE TABLE IF NOT EXISTS friendships (
     CHECK (user_id_1 < user_id_2)
 );
 
+-- Friend requests table
+CREATE TABLE IF NOT EXISTS friend_requests (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    sender_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    recipient_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    status VARCHAR(50) NOT NULL DEFAULT 'PENDING',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Activity feed table
 CREATE TABLE IF NOT EXISTS activity_feed (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -206,6 +216,35 @@ CREATE TABLE IF NOT EXISTS progress_photos (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- GPS sessions table
+CREATE TABLE IF NOT EXISTS gps_sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    workout_id UUID REFERENCES workouts(id) ON DELETE CASCADE,
+    start_time TIMESTAMP NOT NULL,
+    end_time TIMESTAMP,
+    duration INTEGER,
+    distance DECIMAL(10, 2),
+    average_pace DECIMAL(10, 2),
+    elevation_change DECIMAL(10, 2),
+    retention_tier VARCHAR(50) DEFAULT 'RAW',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- GPS coordinates table (raw GPS points)
+CREATE TABLE IF NOT EXISTS gps_coordinates (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id UUID NOT NULL REFERENCES gps_sessions(id) ON DELETE CASCADE,
+    latitude DECIMAL(10, 8) NOT NULL,
+    longitude DECIMAL(11, 8) NOT NULL,
+    elevation DECIMAL(10, 2),
+    accuracy DECIMAL(10, 2),
+    timestamp TIMESTAMP NOT NULL,
+    retention_tier VARCHAR(50) DEFAULT 'RAW',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- GPS routes table
 CREATE TABLE IF NOT EXISTS gps_routes (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -218,6 +257,28 @@ CREATE TABLE IF NOT EXISTS gps_routes (
     difficulty VARCHAR(50),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Route ratings table
+CREATE TABLE IF NOT EXISTS route_ratings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    route_id UUID NOT NULL REFERENCES gps_routes(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    rating INTEGER NOT NULL CHECK (rating >= 1 AND rating <= 5),
+    review TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(route_id, user_id)
+);
+
+-- Route shares table
+CREATE TABLE IF NOT EXISTS route_shares (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    route_id UUID NOT NULL REFERENCES gps_routes(id) ON DELETE CASCADE,
+    owner_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    shared_with_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(route_id, owner_id, shared_with_id)
 );
 
 -- Sync queue table
@@ -293,8 +354,22 @@ CREATE INDEX IF NOT EXISTS idx_muscle_group_ranks_user_id ON muscle_group_ranks(
 CREATE INDEX IF NOT EXISTS idx_personal_records_user_id ON personal_records(user_id);
 CREATE INDEX IF NOT EXISTS idx_friendships_user_id_1 ON friendships(user_id_1);
 CREATE INDEX IF NOT EXISTS idx_friendships_user_id_2 ON friendships(user_id_2);
+CREATE INDEX IF NOT EXISTS idx_friend_requests_sender_id ON friend_requests(sender_id);
+CREATE INDEX IF NOT EXISTS idx_friend_requests_recipient_id ON friend_requests(recipient_id);
+CREATE INDEX IF NOT EXISTS idx_friend_requests_status ON friend_requests(status);
 CREATE INDEX IF NOT EXISTS idx_backup_codes_user_id ON backup_codes(user_id);
 CREATE INDEX IF NOT EXISTS idx_flagged_workouts_user_id ON flagged_workouts(user_id);
 CREATE INDEX IF NOT EXISTS idx_flagged_workouts_reviewed ON flagged_workouts(reviewed);
 CREATE INDEX IF NOT EXISTS idx_flagged_workouts_flagged_at ON flagged_workouts(flagged_at);
 CREATE INDEX IF NOT EXISTS idx_fraud_audit_log_user_id ON fraud_audit_log(user_id);
+CREATE INDEX IF NOT EXISTS idx_gps_sessions_user_id ON gps_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_gps_sessions_created_at ON gps_sessions(created_at);
+CREATE INDEX IF NOT EXISTS idx_gps_sessions_retention_tier ON gps_sessions(retention_tier);
+CREATE INDEX IF NOT EXISTS idx_gps_coordinates_session_id ON gps_coordinates(session_id);
+CREATE INDEX IF NOT EXISTS idx_gps_coordinates_timestamp ON gps_coordinates(timestamp);
+CREATE INDEX IF NOT EXISTS idx_gps_coordinates_retention_tier ON gps_coordinates(retention_tier);
+CREATE INDEX IF NOT EXISTS idx_gps_routes_user_id ON gps_routes(user_id);
+CREATE INDEX IF NOT EXISTS idx_route_ratings_route_id ON route_ratings(route_id);
+CREATE INDEX IF NOT EXISTS idx_route_ratings_user_id ON route_ratings(user_id);
+CREATE INDEX IF NOT EXISTS idx_route_shares_route_id ON route_shares(route_id);
+CREATE INDEX IF NOT EXISTS idx_route_shares_shared_with_id ON route_shares(shared_with_id);

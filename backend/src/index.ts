@@ -7,6 +7,7 @@ import { config } from './config/config';
 import { initializeSentry, logger } from './logging/logger';
 import { initializeDatabase, closeDatabase } from './database/connection';
 import { initializeRedis, startBatchJob, stopBatchJob } from './services/leaderboardService';
+import { startGPSBatchJobs, stopGPSBatchJobs } from './services/gpsBatchJobService';
 import authRoutes from './routes/authRoutes';
 import mfaRoutes from './routes/mfaRoutes';
 import fraudDetectionRoutes from './routes/fraudDetectionRoutes';
@@ -15,6 +16,14 @@ import userProfileRoutes from './routes/userProfileRoutes';
 import exerciseRoutes from './routes/exerciseRoutes';
 import syncRoutes from './routes/syncRoutes';
 import workoutRoutes from './routes/workoutRoutes';
+import leaderboardRoutes from './routes/leaderboardRoutes';
+import friendRoutes from './routes/friendRoutes';
+import activityFeedRoutes from './routes/activityFeedRoutes';
+import challengeRoutes from './routes/challengeRoutes';
+import progressTrackingRoutes from './routes/progressTrackingRoutes';
+import bodyTrackingRoutes from './routes/bodyTrackingRoutes';
+import gpsRoutes from './routes/gpsRoutes';
+import routeRoutes from './routes/routeRoutes';
 
 // Initialize Sentry
 initializeSentry();
@@ -93,6 +102,30 @@ app.use('/exercises', exerciseRoutes);
 // Workout routes
 app.use('/workouts', workoutRoutes);
 
+// Leaderboard routes
+app.use('/leaderboards', leaderboardRoutes);
+
+// Friend routes
+app.use('/friends', friendRoutes);
+
+// Activity feed routes
+app.use('/activity-feed', activityFeedRoutes);
+
+// Challenge routes
+app.use('/challenges', challengeRoutes);
+
+// Progress tracking routes
+app.use('/progress', progressTrackingRoutes);
+
+// Body tracking routes
+app.use('/body', bodyTrackingRoutes);
+
+// GPS routes
+app.use('/gps', gpsRoutes);
+
+// Route routes
+app.use('/routes', routeRoutes);
+
 // Sync routes
 app.use('/sync', syncRoutes);
 
@@ -146,6 +179,9 @@ async function startServer(): Promise<void> {
     // Start leaderboard batch job (recalculates rankings every 5 minutes)
     startBatchJob();
 
+    // Start GPS batch jobs (downsampling and archiving)
+    startGPSBatchJobs();
+
     // Start listening
     app.listen(config.port, () => {
       logger.info(`Server running on port ${config.port} in ${config.nodeEnv} mode`);
@@ -162,6 +198,7 @@ async function startServer(): Promise<void> {
 async function shutdown(): Promise<void> {
   logger.info('Shutting down gracefully...');
   stopBatchJob();
+  stopGPSBatchJobs();
   await closeDatabase();
   process.exit(0);
 }

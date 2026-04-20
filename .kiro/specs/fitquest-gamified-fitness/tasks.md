@@ -266,7 +266,7 @@ FitQuest is implemented across two platforms: iOS (Swift) for the mobile app and
   - **Property 12: Leaderboard Ranking Correctness**
   - **Validates: Requirements 9.1, 9.2, 9.3, 9.4**
 
-- [ ] 3.3 Implement leaderboard API endpoints (backend)
+- [x] 3.3 Implement leaderboard API endpoints (backend)
   - Create GET `/leaderboards/global` endpoint with pagination
   - Create GET `/leaderboards/friends` endpoint with pagination
   - Create GET `/leaderboards/weekly` endpoint with pagination
@@ -274,25 +274,25 @@ FitQuest is implemented across two platforms: iOS (Swift) for the mobile app and
   - Add nearby competitors display (±5 positions)
   - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5_
 
-- [ ] 3.4 Write property test for leaderboard user position
+- [x] 3.4 Write property test for leaderboard user position
   - **Property 13: Leaderboard User Position**
   - **Validates: Requirements 9.5**
 
-- [ ] 3.5 Implement leaderboard service (iOS)
+- [x] 3.5 Implement leaderboard service (iOS)
   - Create LeaderboardService with local caching
   - Implement leaderboard display with pagination
   - Create user position highlighting
   - Implement nearby competitors display
   - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5, 9.6_
 
-- [ ] 3.6 Write unit tests for leaderboard system
+- [x] 3.6 Write unit tests for leaderboard system
   - Test ranking calculation accuracy
   - Test pagination and position queries
   - Test weekly reset logic
   - Test caching and refresh
   - _Requirements: 9.0_
 
-- [ ] 3.7 Implement friend system (backend)
+- [x] 3.7 Implement friend system (backend)
   - Create POST `/friends/request` endpoint for sending friend requests
   - Create POST `/friends/request/:id/accept` endpoint
   - Create POST `/friends/request/:id/decline` endpoint
@@ -301,25 +301,25 @@ FitQuest is implemented across two platforms: iOS (Swift) for the mobile app and
   - Implement friend request notifications
   - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.7_
 
-- [ ] 3.8 Write property test for friend request round trip
+- [x] 3.8 Write property test for friend request round trip
   - **Property 26: Friend Request Round Trip**
   - **Validates: Requirements 10.2, 10.3, 10.5**
 
-- [ ] 3.9 Implement friend service (iOS)
+- [x] 3.9 Implement friend service (iOS)
   - Create FriendService with friend request management
   - Implement friend search by username/email
   - Create friend list display
   - Implement friend request notifications
   - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.7_
 
-- [ ] 3.10 Write unit tests for friend system
+- [x] 3.10 Write unit tests for friend system
   - Test friend request send/accept/decline
   - Test friend list retrieval
   - Test friend removal
   - Test friend search
   - _Requirements: 10.0_
 
-- [ ] 3.11 Implement activity feed (backend)
+- [x] 3.11 Implement activity feed (backend)
   - Create activity feed entry types (workout completed, level up, achievement unlocked, streak milestone, friend added)
   - Implement fan-out-on-write strategy with Redis
   - Create GET `/activity-feed` endpoint with pagination
@@ -327,25 +327,25 @@ FitQuest is implemented across two platforms: iOS (Swift) for the mobile app and
   - Enforce 1,000 friend limit per user
   - _Requirements: 11.1, 11.2, 11.3, 11.4, 11.5, 11.6, 11.7_
 
-- [ ] 3.12 Write property test for activity feed consistency
+- [x] 3.12 Write property test for activity feed consistency
   - **Property 27: Activity Feed Consistency**
   - **Validates: Requirements 11.1, 11.2, 11.4**
 
-- [ ] 3.13 Implement activity feed service (iOS)
+- [x] 3.13 Implement activity feed service (iOS)
   - Create ActivityFeedService with local caching
   - Implement activity feed display with pagination
   - Create activity notifications
   - Implement offline activity caching
   - _Requirements: 11.1, 11.2, 11.3, 11.4, 11.5, 11.6, 11.7_
 
-- [ ] 3.14 Write unit tests for activity feed
+- [x] 3.14 Write unit tests for activity feed
   - Test activity entry creation
   - Test fan-out propagation
   - Test pagination and caching
   - Test offline availability
   - _Requirements: 11.0_
 
-- [ ] 3.15 Implement challenge system (backend)
+- [x] 3.15 Implement challenge system (backend)
   - Create challenge types (Friend, Community)
   - Create challenge goal types (XP, Volume, Streak)
   - Create POST `/challenges` endpoint for challenge creation
@@ -355,25 +355,25 @@ FitQuest is implemented across two platforms: iOS (Swift) for the mobile app and
   - Implement challenge ranking and result calculation
   - _Requirements: 12.1, 12.2, 12.3, 12.4, 12.5, 12.6_
 
-- [ ] 3.16 Write property test for challenge progress tracking
+- [x] 3.16 Write property test for challenge progress tracking
   - **Property 28: Challenge Progress Tracking**
   - **Validates: Requirements 12.4, 12.5**
 
-- [ ] 3.17 Implement challenge service (iOS)
+- [x] 3.17 Implement challenge service (iOS)
   - Create ChallengeService with challenge management
   - Implement challenge creation and joining
   - Create challenge progress display
   - Implement challenge notifications
   - _Requirements: 12.1, 12.2, 12.3, 12.4, 12.5, 12.6_
 
-- [ ] 3.18 Write unit tests for challenge system
+- [x] 3.18 Write unit tests for challenge system
   - Test challenge creation and joining
   - Test progress tracking and ranking
   - Test challenge completion and results
   - Test notifications
   - _Requirements: 12.0_
 
-- [ ] 3.19 Checkpoint - Ensure all social feature tests pass
+- [x] 3.19 Checkpoint - Ensure all social feature tests pass
   - Ensure all unit and property tests pass for leaderboards, friends, activity feed, and challenges
   - Verify leaderboard rankings are accurate
   - Verify activity feed propagation works correctly
@@ -382,7 +382,7 @@ FitQuest is implemented across two platforms: iOS (Swift) for the mobile app and
 
 ## Phase 4: Advanced Features (GPS Tracking, Body Tracking, Rest Timer, Widgets)
 
-- [ ] 4.1 Implement progress tracking - PRs and volume (backend)
+- [x] 4.1 Implement progress tracking - PRs and volume (backend)
   - Create personal record tracking with date, weight, and reps
   - Implement PR detection on workout completion
   - Create volume calculation per workout, week, and month
@@ -391,36 +391,36 @@ FitQuest is implemented across two platforms: iOS (Swift) for the mobile app and
   - Create GET `/progress/volume` endpoint
   - _Requirements: 13.1, 13.2, 13.3, 13.4, 13.5, 13.6_
 
-- [ ] 4.2 Write property test for personal record tracking
+- [x] 4.2 Write property test for personal record tracking
   - **Property 14: Personal Record Tracking**
   - **Validates: Requirements 13.1, 13.2, 13.3**
 
-- [ ] 4.3 Write property test for volume calculation and trending
+- [x] 4.3 Write property test for volume calculation and trending
   - **Property 15: Volume Calculation and Trending**
   - **Validates: Requirements 13.4, 13.5, 13.6**
 
-- [ ] 4.4 Implement progress tracking - Charts (backend)
+- [x] 4.4 Implement progress tracking - Charts (backend)
   - Create chart generation endpoints for line, bar, and pie charts
   - Implement date range filtering
   - Create chart export functionality
   - Create GET `/progress/charts/:type` endpoint
   - _Requirements: 14.1, 14.2, 14.3, 14.4, 14.5, 14.6_
 
-- [ ] 4.5 Implement progress tracking service (iOS)
+- [x] 4.5 Implement progress tracking service (iOS)
   - Create ProgressTrackerService with PR and volume tracking
   - Implement PR detection and notifications
   - Create chart display and export
   - Implement filtering by muscle group and exercise
   - _Requirements: 13.0, 14.0_
 
-- [ ] 4.6 Write unit tests for progress tracking
+- [x] 4.6 Write unit tests for progress tracking
   - Test PR detection and update
   - Test volume calculations
   - Test chart generation
   - Test filtering and export
   - _Requirements: 13.0, 14.0_
 
-- [ ] 4.7 Implement body tracking - Weight and measurements (backend)
+- [x] 4.7 Implement body tracking - Weight and measurements (backend)
   - Create POST `/body/weight` endpoint for weight logging
   - Create GET `/body/weight` endpoint with history
   - Create POST `/body/measurements` endpoint
@@ -428,46 +428,46 @@ FitQuest is implemented across two platforms: iOS (Swift) for the mobile app and
   - Implement trend line calculation
   - _Requirements: 15.1, 15.2, 15.3, 15.4, 15.5_
 
-- [ ] 4.8 Write property test for body weight tracking
+- [x] 4.8 Write property test for body weight tracking
   - **Property 29: Body Weight Tracking**
   - **Validates: Requirements 15.1, 15.2**
 
-- [ ] 4.9 Write property test for body measurement tracking
+- [x] 4.9 Write property test for body measurement tracking
   - **Property 30: Body Measurement Tracking**
   - **Validates: Requirements 15.3, 15.4**
 
-- [ ] 4.10 Implement body tracking - Weight and measurements (iOS)
+- [x] 4.10 Implement body tracking - Weight and measurements (iOS)
   - Create BodyTrackerService with weight and measurement logging
   - Implement weight history display with trend line
   - Create measurement history with change calculations
   - Implement edit and delete within 7 days
   - _Requirements: 15.1, 15.2, 15.3, 15.4, 15.5_
 
-- [ ] 4.11 Implement body tracking - Progress photos (backend)
+- [x] 4.11 Implement body tracking - Progress photos (backend)
   - Create POST `/body/photos` endpoint for photo upload
   - Create GET `/body/photos` endpoint with gallery
   - Implement image compression (max 5MB)
   - Create photo comparison functionality
   - _Requirements: 16.1, 16.2, 16.3, 16.4, 16.5, 16.6_
 
-- [ ] 4.12 Write property test for progress photo storage
+- [x] 4.12 Write property test for progress photo storage
   - **Property 31: Progress Photo Storage**
   - **Validates: Requirements 16.1, 16.2**
 
-- [ ] 4.13 Implement body tracking - Progress photos (iOS)
+- [x] 4.13 Implement body tracking - Progress photos (iOS)
   - Create photo upload and gallery display
   - Implement side-by-side photo comparison
   - Create photo deletion with sync
   - _Requirements: 16.1, 16.2, 16.3, 16.4, 16.5, 16.6_
 
-- [ ] 4.14 Write unit tests for body tracking
+- [x] 4.14 Write unit tests for body tracking
   - Test weight and measurement logging
   - Test trend calculations
   - Test photo upload and gallery
   - Test comparison functionality
   - _Requirements: 15.0, 16.0_
 
-- [ ] 4.15 Implement rest timer (iOS)
+- [x] 4.15 Implement rest timer (iOS)
   - Create RestTimerService with countdown timer
   - Implement smart rest duration suggestions based on exercise type
   - Create manual duration adjustment (30-300 seconds)
@@ -475,18 +475,18 @@ FitQuest is implemented across two platforms: iOS (Swift) for the mobile app and
   - Add notification sound on timer completion
   - _Requirements: 17.1, 17.2, 17.3, 17.4, 17.5, 17.6_
 
-- [ ] 4.16 Write property test for rest timer suggestions
+- [x] 4.16 Write property test for rest timer suggestions
   - **Property 32: Rest Timer Suggestions**
   - **Validates: Requirements 17.4**
 
-- [ ] 4.17 Write unit tests for rest timer
+- [x] 4.17 Write unit tests for rest timer
   - Test timer countdown
   - Test smart suggestions
   - Test manual adjustment
   - Test average calculation
   - _Requirements: 17.0_
 
-- [ ] 4.18 Implement GPS tracking (iOS)
+- [x] 4.18 Implement GPS tracking (iOS)
   - Create GPSTrackerService with location permission handling
   - Implement GPS coordinate recording (every 10 seconds or 10m distance change)
   - Create distance, pace, and elevation calculation
@@ -494,21 +494,21 @@ FitQuest is implemented across two platforms: iOS (Swift) for the mobile app and
   - Add signal loss handling and recovery
   - _Requirements: 20.1, 20.2, 20.3, 20.4, 20.5, 20.6_
 
-- [ ] 4.19 Write property test for GPS recording accuracy
+- [x] 4.19 Write property test for GPS recording accuracy
   - **Property 16: GPS Recording Accuracy**
   - **Validates: Requirements 20.1, 20.2, 20.3, 20.4**
 
-- [ ] 4.20 Write property test for GPS signal loss handling
+- [x] 4.20 Write property test for GPS signal loss handling
   - **Property 17: GPS Signal Loss Handling**
   - **Validates: Requirements 20.5**
 
-- [ ] 4.21 Implement GPS API endpoints (backend)
+- [x] 4.21 Implement GPS API endpoints (backend)
   - Create endpoints for GPS data storage and retrieval
   - Implement tiered retention (raw 30 days, downsampled 1 year, archived after 1 year)
   - Create batch job for downsampling (1 point per minute after 30 days)
   - _Requirements: 20.1, 20.2, 20.3, 20.4, 20.5, 20.6_
 
-- [ ] 4.22 Implement route planning (iOS)
+- [x] 4.22 Implement route planning (iOS)
   - Create RouteService with route creation and navigation
   - Implement start/end point selection on map
   - Create distance and time estimation
@@ -516,23 +516,23 @@ FitQuest is implemented across two platforms: iOS (Swift) for the mobile app and
   - Add route saving and sharing
   - _Requirements: 21.1, 21.2, 21.3, 21.4, 21.5, 21.6_
 
-- [ ] 4.23 Write property test for route navigation
+- [x] 4.23 Write property test for route navigation
   - **Property 37: Route Navigation**
   - **Validates: Requirements 21.3, 21.4**
 
-- [ ] 4.24 Implement route API endpoints (backend)
+- [x] 4.24 Implement route API endpoints (backend)
   - Create route CRUD endpoints
   - Implement route rating and review system
   - _Requirements: 21.1, 21.2, 21.3, 21.4, 21.5, 21.6_
 
-- [ ] 4.25 Write unit tests for GPS and route features
+- [x] 4.25 Write unit tests for GPS and route features
   - Test GPS recording and calculations
   - Test signal loss handling
   - Test route creation and navigation
   - Test offline GPS storage and sync
   - _Requirements: 20.0, 21.0_
 
-- [ ] 4.26 Implement home screen widgets (iOS)
+- [x] 4.26 Implement home screen widgets (iOS)
   - Create small widget displaying current streak and XP progress
   - Create medium widget displaying today's workout status and next milestone
   - Create large widget displaying leaderboard position and friends' activity
@@ -540,13 +540,13 @@ FitQuest is implemented across two platforms: iOS (Swift) for the mobile app and
   - Add dark mode and light mode support
   - _Requirements: 18.1, 18.2, 18.3, 18.4, 18.5, 18.6_
 
-- [ ] 4.27 Write unit tests for widgets
+- [x] 4.27 Write unit tests for widgets
   - Test widget data updates
   - Test widget tap navigation
   - Test dark/light mode rendering
   - _Requirements: 18.0_
 
-- [ ] 4.28 Checkpoint - Ensure all advanced feature tests pass
+- [x] 4.28 Checkpoint - Ensure all advanced feature tests pass
   - Ensure all unit and property tests pass for progress tracking, body tracking, GPS, and widgets
   - Verify GPS calculations are accurate
   - Verify rest timer suggestions are appropriate

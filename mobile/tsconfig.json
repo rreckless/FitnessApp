@@ -21,7 +21,8 @@
       "@utils/*": ["src/utils/*"],
       "@types/*": ["src/types/*"],
       "@database/*": ["src/database/*"],
-      "@config/*": ["src/config/*"]
+      "@config/*": ["src/config/*"],
+      "@widgets/*": ["src/widgets/*"]
     }
   },
   "include": ["src/**/*"],
