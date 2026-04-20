@@ -1,6 +1,6 @@
 import ExerciseLibraryService from '@services/ExerciseLibraryService';
 import AuthenticationService from '@services/AuthenticationService';
-import { mockAxiosInstance, mockDatabaseManager, mockAsyncStorage } from './setup';
+import { mockAxiosInstance, mockDatabaseManager, mockAsyncStorage, createMockExerciseRow } from './setup';
 
 const mockedAxios = mockAxiosInstance;
 const mockedDbManager = mockDatabaseManager;
@@ -8,8 +8,6 @@ const mockedAsyncStorageObj = mockAsyncStorage;
 const mockedAuthService = AuthenticationService as jest.Mocked<typeof AuthenticationService>;
 
 describe('ExerciseLibraryService', () => {
-  let mockApiInstance: any;
-
   const mockExercises = [
     {
       id: 'ex-1',
@@ -60,22 +58,22 @@ describe('ExerciseLibraryService', () => {
         },
       };
 
-      mockApiInstance.get.mockResolvedValueOnce(mockResponse);
+      mockedAxios.get.mockResolvedValueOnce(mockResponse);
       mockedDbManager.executeSql = jest.fn().mockResolvedValue({ rows: { length: 0 } });
 
       const result = await ExerciseLibraryService.searchExercises('bench');
 
       expect(result).toHaveLength(2);
       expect(result[0].name).toBe('Bench Press');
-      expect(mockApiInstance.get).toHaveBeenCalledWith('/exercises?search=bench');
+      expect(mockedAxios.get).toHaveBeenCalledWith('/exercises?search=bench');
     });
 
     it('should fall back to local search on network error', async () => {
-      mockApiInstance.get.mockRejectedValueOnce(new Error('Network error'));
+      mockedAxios.get.mockRejectedValueOnce(new Error('Network error'));
 
       const mockRows = {
         length: 1,
-        item: (index: number) => mockExercises[index],
+        item: (index: number) => createMockExerciseRow(mockExercises[index]),
       };
 
       mockedDbManager.executeSql = jest.fn().mockResolvedValue({
@@ -89,7 +87,7 @@ describe('ExerciseLibraryService', () => {
     });
 
     it('should throw error if both online and offline search fail', async () => {
-      mockApiInstance.get.mockRejectedValueOnce(new Error('Network error'));
+      mockedAxios.get.mockRejectedValueOnce(new Error('Network error'));
       mockedDbManager.executeSql = jest.fn().mockRejectedValue(new Error('Database error'));
 
       await expect(ExerciseLibraryService.searchExercises('bench')).rejects.toThrow();
@@ -107,22 +105,22 @@ describe('ExerciseLibraryService', () => {
         },
       };
 
-      mockApiInstance.get.mockResolvedValueOnce(mockResponse);
+      mockedAxios.get.mockResolvedValueOnce(mockResponse);
       mockedDbManager.executeSql = jest.fn().mockResolvedValue({ rows: { length: 0 } });
 
       const result = await ExerciseLibraryService.getExercisesByMuscleGroup('CHEST');
 
       expect(result).toHaveLength(1);
       expect(result[0].primaryMuscleGroup).toBe('CHEST');
-      expect(mockApiInstance.get).toHaveBeenCalledWith('/exercises/muscle-groups/CHEST');
+      expect(mockedAxios.get).toHaveBeenCalledWith('/exercises/muscle-groups/CHEST');
     });
 
     it('should fall back to local search on network error', async () => {
-      mockApiInstance.get.mockRejectedValueOnce(new Error('Network error'));
+      mockedAxios.get.mockRejectedValueOnce(new Error('Network error'));
 
       const mockRows = {
         length: 1,
-        item: (index: number) => mockExercises[0],
+        item: () => createMockExerciseRow(mockExercises[0]),
       };
 
       mockedDbManager.executeSql = jest.fn().mockResolvedValue({
@@ -138,7 +136,7 @@ describe('ExerciseLibraryService', () => {
 
   describe('getExercise', () => {
     it('should get exercise by ID online', async () => {
-      mockApiInstance.get.mockResolvedValueOnce({
+      mockedAxios.get.mockResolvedValueOnce({
         data: mockExercises[0],
       });
 
@@ -148,15 +146,15 @@ describe('ExerciseLibraryService', () => {
 
       expect(result.id).toBe('ex-1');
       expect(result.name).toBe('Bench Press');
-      expect(mockApiInstance.get).toHaveBeenCalledWith('/exercises/ex-1');
+      expect(mockedAxios.get).toHaveBeenCalledWith('/exercises/ex-1');
     });
 
     it('should fall back to local search on network error', async () => {
-      mockApiInstance.get.mockRejectedValueOnce(new Error('Network error'));
+      mockedAxios.get.mockRejectedValueOnce(new Error('Network error'));
 
       const mockRows = {
         length: 1,
-        item: () => mockExercises[0],
+        item: () => createMockExerciseRow(mockExercises[0]),
       };
 
       mockedDbManager.executeSql = jest.fn().mockResolvedValue({
@@ -169,7 +167,7 @@ describe('ExerciseLibraryService', () => {
     });
 
     it('should throw error if exercise not found', async () => {
-      mockApiInstance.get.mockRejectedValueOnce(new Error('Network error'));
+      mockedAxios.get.mockRejectedValueOnce(new Error('Network error'));
 
       mockedDbManager.executeSql = jest.fn().mockResolvedValue({
         rows: { length: 0 },
@@ -190,7 +188,7 @@ describe('ExerciseLibraryService', () => {
         },
       };
 
-      mockApiInstance.get.mockResolvedValueOnce(mockResponse);
+      mockedAxios.get.mockResolvedValueOnce(mockResponse);
       mockedDbManager.executeSql = jest.fn().mockResolvedValue({ rows: { length: 0 } });
 
       const result = await ExerciseLibraryService.getAllExercises(1, 50);
@@ -198,7 +196,7 @@ describe('ExerciseLibraryService', () => {
       expect(result.exercises).toHaveLength(2);
       expect(result.total).toBe(100);
       expect(result.page).toBe(1);
-      expect(mockApiInstance.get).toHaveBeenCalledWith('/exercises?page=1&pageSize=50');
+      expect(mockedAxios.get).toHaveBeenCalledWith('/exercises?page=1&pageSize=50');
     });
 
     it('should get exercises with custom pagination', async () => {
@@ -211,7 +209,7 @@ describe('ExerciseLibraryService', () => {
         },
       };
 
-      mockApiInstance.get.mockResolvedValueOnce(mockResponse);
+      mockedAxios.get.mockResolvedValueOnce(mockResponse);
       mockedDbManager.executeSql = jest.fn().mockResolvedValue({ rows: { length: 0 } });
 
       const result = await ExerciseLibraryService.getAllExercises(2, 25);
@@ -232,20 +230,20 @@ describe('ExerciseLibraryService', () => {
         },
       };
 
-      mockApiInstance.get.mockResolvedValueOnce(mockResponse);
+      mockedAxios.get.mockResolvedValueOnce(mockResponse);
       mockedDbManager.executeSql = jest.fn().mockResolvedValue({ rows: { length: 0 } });
 
       await ExerciseLibraryService.syncExerciseLibrary();
 
-      expect(mockApiInstance.get).toHaveBeenCalledWith('/exercises?pageSize=1000');
-      expect(mockedAsyncStorage.setItem).toHaveBeenCalledWith(
+      expect(mockedAxios.get).toHaveBeenCalledWith('/exercises?pageSize=1000');
+      expect(mockedAsyncStorageObj.setItem).toHaveBeenCalledWith(
         'exerciseLibrarySyncTime',
         expect.any(String)
       );
     });
 
     it('should throw error on sync failure', async () => {
-      mockApiInstance.get.mockRejectedValueOnce(new Error('Network error'));
+      mockedAxios.get.mockRejectedValueOnce(new Error('Network error'));
 
       await expect(ExerciseLibraryService.syncExerciseLibrary()).rejects.toThrow();
     });
@@ -254,7 +252,7 @@ describe('ExerciseLibraryService', () => {
   describe('getLastSyncTime', () => {
     it('should return last sync time', async () => {
       const syncTime = new Date().toISOString();
-      mockedAsyncStorage.getItem.mockResolvedValueOnce(syncTime);
+      mockedAsyncStorageObj.getItem.mockResolvedValueOnce(syncTime);
 
       const result = await ExerciseLibraryService.getLastSyncTime();
 
@@ -262,7 +260,7 @@ describe('ExerciseLibraryService', () => {
     });
 
     it('should return null if no sync time stored', async () => {
-      mockedAsyncStorage.getItem.mockResolvedValueOnce(null);
+      mockedAsyncStorageObj.getItem.mockResolvedValueOnce(null);
 
       const result = await ExerciseLibraryService.getLastSyncTime();
 
@@ -270,7 +268,7 @@ describe('ExerciseLibraryService', () => {
     });
 
     it('should return null on storage error', async () => {
-      mockedAsyncStorage.getItem.mockRejectedValueOnce(new Error('Storage error'));
+      mockedAsyncStorageObj.getItem.mockRejectedValueOnce(new Error('Storage error'));
 
       const result = await ExerciseLibraryService.getLastSyncTime();
 
@@ -280,7 +278,7 @@ describe('ExerciseLibraryService', () => {
 
   describe('shouldRefreshCache', () => {
     it('should return true if no sync time', async () => {
-      mockedAsyncStorage.getItem.mockResolvedValueOnce(null);
+      mockedAsyncStorageObj.getItem.mockResolvedValueOnce(null);
 
       const result = await ExerciseLibraryService.shouldRefreshCache();
 
@@ -289,7 +287,7 @@ describe('ExerciseLibraryService', () => {
 
     it('should return true if cache older than 7 days', async () => {
       const eightDaysAgo = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString();
-      mockedAsyncStorage.getItem.mockResolvedValueOnce(eightDaysAgo);
+      mockedAsyncStorageObj.getItem.mockResolvedValueOnce(eightDaysAgo);
 
       const result = await ExerciseLibraryService.shouldRefreshCache();
 
@@ -298,7 +296,7 @@ describe('ExerciseLibraryService', () => {
 
     it('should return false if cache newer than 7 days', async () => {
       const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
-      mockedAsyncStorage.getItem.mockResolvedValueOnce(twoDaysAgo);
+      mockedAsyncStorageObj.getItem.mockResolvedValueOnce(twoDaysAgo);
 
       const result = await ExerciseLibraryService.shouldRefreshCache();
 

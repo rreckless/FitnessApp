@@ -226,5 +226,63 @@ export class ExerciseError extends Error {
   }
 }
 
+// Muscle Group Rank Types
+export interface MuscleGroupRankData {
+  userId: string;
+  muscleGroup: string;
+  rank: number;
+  totalVolume: number;
+  percentile: number;
+  updatedAt: string;
+}
+
+export enum MuscleGroupRankErrorType {
+  InvalidMuscleGroup = 'INVALID_MUSCLE_GROUP',
+  InvalidVolume = 'INVALID_VOLUME',
+  InvalidRank = 'INVALID_RANK',
+  DatabaseError = 'DATABASE_ERROR',
+  UserNotFound = 'USER_NOT_FOUND',
+}
+
+export class MuscleGroupRankError extends Error {
+  constructor(
+    public type: MuscleGroupRankErrorType,
+    message: string
+  ) {
+    super(message);
+    this.name = 'MuscleGroupRankError';
+  }
+}
+
+// Achievement Types
+export interface AchievementData {
+  id: string;
+  name: string;
+  description: string;
+  rarity: string;
+  category: string;
+  xpReward: number;
+  unlockedCondition: string;
+  icon: string;
+  createdAt: string;
+}
+
+export enum AchievementErrorType {
+  InvalidData = 'INVALID_DATA',
+  AchievementNotFound = 'ACHIEVEMENT_NOT_FOUND',
+  DatabaseError = 'DATABASE_ERROR',
+  UserNotFound = 'USER_NOT_FOUND',
+}
+
+export class AchievementError extends Error {
+  constructor(
+    public type: AchievementErrorType,
+    message: string
+  ) {
+    super(message);
+    this.name = 'AchievementError';
+  }
+}
+
 // Dummy export to ensure this file is treated as a value module
 export const __typeModule = true;

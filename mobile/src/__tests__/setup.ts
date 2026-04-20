@@ -1,6 +1,6 @@
 // Jest setup file for common mocking patterns and test utilities
 
-// Mock AsyncStorage with proper implementation
+// Mock AsyncStorage with proper implementation - MUST BE FIRST
 const mockAsyncStorage: any = {
   storage: {} as Record<string, string>,
   setItem: jest.fn(async (key: string, value: string): Promise<void> => {
@@ -34,7 +34,10 @@ const mockAsyncStorage: any = {
   }),
 };
 
-jest.mock('@react-native-async-storage/async-storage', () => mockAsyncStorage);
+jest.mock('@react-native-async-storage/async-storage', () => ({
+  default: mockAsyncStorage,
+  __esModule: true,
+}));
 
 // Mock Keychain with proper implementation
 const mockKeychain: any = {
@@ -68,7 +71,12 @@ const mockAxiosInstance: any = {
   delete: jest.fn(),
   interceptors: {
     request: {
-      use: jest.fn(),
+      use: jest.fn((callback: any) => {
+        // Call the interceptor immediately with a mock config
+        if (callback) {
+          callback({ headers: {} });
+        }
+      }),
     },
     response: {
       use: jest.fn(),
@@ -76,12 +84,14 @@ const mockAxiosInstance: any = {
   },
 };
 
-jest.mock('axios', () => ({
+const mockAxios = {
   create: jest.fn(() => mockAxiosInstance),
   default: {
     create: jest.fn(() => mockAxiosInstance),
   },
-}));
+};
+
+jest.mock('axios', () => mockAxios);
 
 // Mock DatabaseManager with proper implementation
 const mockDatabaseManager: any = {
@@ -101,6 +111,20 @@ const mockDatabaseManager: any = {
   }),
 };
 
+// Helper to create mock database row from exercise
+const createMockExerciseRow = (exercise: any) => ({
+  id: exercise.id,
+  name: exercise.name,
+  description: exercise.description,
+  primaryMuscleGroup: exercise.primaryMuscleGroup,
+  secondaryMuscleGroups: JSON.stringify(exercise.secondaryMuscleGroups || []),
+  difficulty: exercise.difficulty,
+  equipment: JSON.stringify(exercise.equipment || []),
+  formTips: JSON.stringify(exercise.formTips || []),
+  videoUrl: exercise.videoUrl,
+  createdAt: exercise.createdAt,
+});
+
 jest.mock('@database/DatabaseManager', () => mockDatabaseManager);
 
 // Mock Config
@@ -108,28 +132,6 @@ jest.mock('@config/Config', () => ({
   apiBaseURL: 'http://localhost:3000/api',
   environment: 'test',
   logLevel: 'error',
-}));
-
-// Mock AuthenticationService
-jest.mock('@services/AuthenticationService', () => ({
-  getInstance: jest.fn(),
-  getCurrentUser: jest.fn(),
-  login: jest.fn(),
-  logout: jest.fn(),
-  register: jest.fn(),
-  refreshAccessToken: jest.fn(),
-  loadStoredUser: jest.fn(),
-}));
-
-// Mock UserProfileService
-jest.mock('@services/UserProfileService', () => ({
-  getInstance: jest.fn(),
-  getUserProfile: jest.fn(),
-  updateUserProfile: jest.fn(),
-  setFitnessGoals: jest.fn(),
-  setExperienceLevel: jest.fn(),
-  setWorkoutFrequency: jest.fn(),
-  setAvailableEquipment: jest.fn(),
 }));
 
 // Mock react-native-uuid with counter for unique IDs
@@ -151,7 +153,7 @@ jest.mock('react-native-uuid', () => ({
 }));
 
 // Export mocks for use in tests
-export { mockAsyncStorage, mockKeychain, mockAxiosInstance, mockDatabaseManager };
+export { mockAsyncStorage, mockKeychain, mockAxiosInstance, mockDatabaseManager, createMockExerciseRow };
 
 // Suppress console errors in tests
 const originalError = console.error;
@@ -160,7 +162,8 @@ beforeAll(() => {
     if (
       typeof args[0] === 'string' &&
       (args[0].includes('Warning: ReactDOM.render') ||
-        args[0].includes('Not implemented: HTMLFormElement.prototype.submit'))
+        args[0].includes('Not implemented: HTMLFormElement.prototype.submit') ||
+        args[0].includes('Failed to load stored user'))
     ) {
       return;
     }

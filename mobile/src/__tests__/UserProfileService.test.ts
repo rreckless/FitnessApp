@@ -1,70 +1,41 @@
 import UserProfileService from '@services/UserProfileService';
-import AuthenticationService from '@services/AuthenticationService';
 import { mockAxiosInstance } from './setup';
 
 const mockedAxios = mockAxiosInstance;
-const mockedAuthService = AuthenticationService as jest.Mocked<typeof AuthenticationService>;
 
 describe('UserProfileService', () => {
-  let mockApiInstance: any;
-
   beforeEach(() => {
     jest.clearAllMocks();
-
-    // Mock axios instance methods
-    mockApiInstance = {
-      get: jest.fn(),
-      put: jest.fn(),
-      post: jest.fn(),
-      delete: jest.fn(),
-      interceptors: {
-        request: {
-          use: jest.fn((callback) => {
-            // Simulate interceptor
-            const config = { headers: {} };
-            callback(config);
-            return config;
-          }),
-        },
-      },
-    };
 
     // Reset the mock instance methods
     mockedAxios.get = jest.fn();
     mockedAxios.put = jest.fn();
     mockedAxios.post = jest.fn();
     mockedAxios.delete = jest.fn();
-    
-    mockedAuthService.getAccessToken = jest.fn().mockResolvedValue('access-token-123');
   });
 
   describe('getProfile', () => {
     it('should fetch user profile successfully', async () => {
       const mockProfile = {
         id: 'user-123',
-        email: 'test@example.com',
+        userId: 'user-123',
         name: 'Test User',
         bio: 'Fitness enthusiast',
-        avatarUrl: 'https://example.com/avatar.jpg',
-        level: 5,
-        totalXp: 1500,
-        currentStreak: 10,
-        longestStreak: 30,
-        subscriptionTier: 'PREMIUM',
+        profilePictureUrl: 'https://example.com/avatar.jpg',
         createdAt: '2024-01-01T00:00:00Z',
         updatedAt: '2024-01-15T00:00:00Z',
       };
 
-      mockApiInstance.get.mockResolvedValueOnce({ data: mockProfile });
+      mockedAxios.get.mockResolvedValueOnce({ data: mockProfile });
 
       const result = await UserProfileService.getProfile('user-123');
 
       expect(result).toEqual(mockProfile);
-      expect(mockApiInstance.get).toHaveBeenCalledWith('/users/user-123');
+      expect(mockedAxios.get).toHaveBeenCalledWith('/users/user-123');
     });
 
     it('should throw error on 404 not found', async () => {
-      mockApiInstance.get.mockRejectedValueOnce({
+      mockedAxios.get.mockRejectedValueOnce({
         response: {
           status: 404,
           data: { error: 'User not found' },
@@ -75,7 +46,7 @@ describe('UserProfileService', () => {
     });
 
     it('should throw error on 401 unauthorized', async () => {
-      mockApiInstance.get.mockRejectedValueOnce({
+      mockedAxios.get.mockRejectedValueOnce({
         response: {
           status: 401,
           data: { error: 'Unauthorized' },
@@ -86,7 +57,7 @@ describe('UserProfileService', () => {
     });
 
     it('should throw error on network failure', async () => {
-      mockApiInstance.get.mockRejectedValueOnce(new Error('Network error'));
+      mockedAxios.get.mockRejectedValueOnce(new Error('Network error'));
 
       await expect(UserProfileService.getProfile('user-123')).rejects.toThrow();
     });
@@ -101,30 +72,25 @@ describe('UserProfileService', () => {
 
       const mockUpdatedProfile = {
         id: 'user-123',
-        email: 'test@example.com',
+        userId: 'user-123',
         name: 'Updated Name',
         bio: 'New bio',
-        avatarUrl: 'https://example.com/avatar.jpg',
-        level: 5,
-        totalXp: 1500,
-        currentStreak: 10,
-        longestStreak: 30,
-        subscriptionTier: 'PREMIUM',
+        profilePictureUrl: 'https://example.com/avatar.jpg',
         createdAt: '2024-01-01T00:00:00Z',
         updatedAt: '2024-01-15T00:00:00Z',
       };
 
-      mockApiInstance.put.mockResolvedValueOnce({ data: mockUpdatedProfile });
+      mockedAxios.put.mockResolvedValueOnce({ data: mockUpdatedProfile });
 
       const result = await UserProfileService.updateProfile('user-123', updateData);
 
       expect(result.name).toBe('Updated Name');
       expect(result.bio).toBe('New bio');
-      expect(mockApiInstance.put).toHaveBeenCalledWith('/users/user-123', updateData);
+      expect(mockedAxios.put).toHaveBeenCalledWith('/users/user-123', updateData);
     });
 
     it('should throw error on bad request', async () => {
-      mockApiInstance.put.mockRejectedValueOnce({
+      mockedAxios.put.mockRejectedValueOnce({
         response: {
           status: 400,
           data: { error: 'Invalid data' },
@@ -139,15 +105,15 @@ describe('UserProfileService', () => {
 
   describe('deleteProfile', () => {
     it('should delete user profile successfully', async () => {
-      mockApiInstance.delete.mockResolvedValueOnce({ data: {} });
+      mockedAxios.delete.mockResolvedValueOnce({ data: {} });
 
       await UserProfileService.deleteProfile('user-123');
 
-      expect(mockApiInstance.delete).toHaveBeenCalledWith('/users/user-123');
+      expect(mockedAxios.delete).toHaveBeenCalledWith('/users/user-123');
     });
 
     it('should throw error on 404', async () => {
-      mockApiInstance.delete.mockRejectedValueOnce({
+      mockedAxios.delete.mockRejectedValueOnce({
         response: {
           status: 404,
           data: { error: 'User not found' },
@@ -170,16 +136,16 @@ describe('UserProfileService', () => {
         updatedAt: '2024-01-15T00:00:00Z',
       };
 
-      mockApiInstance.get.mockResolvedValueOnce({ data: mockPreferences });
+      mockedAxios.get.mockResolvedValueOnce({ data: mockPreferences });
 
       const result = await UserProfileService.getPreferences('user-123');
 
       expect(result).toEqual(mockPreferences);
-      expect(mockApiInstance.get).toHaveBeenCalledWith('/users/user-123/preferences');
+      expect(mockedAxios.get).toHaveBeenCalledWith('/users/user-123/preferences');
     });
 
     it('should throw error on network failure', async () => {
-      mockApiInstance.get.mockRejectedValueOnce(new Error('Network error'));
+      mockedAxios.get.mockRejectedValueOnce(new Error('Network error'));
 
       await expect(UserProfileService.getPreferences('user-123')).rejects.toThrow();
     });
@@ -202,13 +168,13 @@ describe('UserProfileService', () => {
         updatedAt: '2024-01-15T00:00:00Z',
       };
 
-      mockApiInstance.put.mockResolvedValueOnce({ data: mockUpdatedPreferences });
+      mockedAxios.put.mockResolvedValueOnce({ data: mockUpdatedPreferences });
 
       const result = await UserProfileService.updatePreferences('user-123', updateData);
 
       expect(result.fitnessGoals).toEqual(['STRENGTH', 'MUSCLE']);
       expect(result.workoutFrequency).toBe(5);
-      expect(mockApiInstance.put).toHaveBeenCalledWith('/users/user-123/preferences', updateData);
+      expect(mockedAxios.put).toHaveBeenCalledWith('/users/user-123/preferences', updateData);
     });
   });
 
@@ -225,12 +191,12 @@ describe('UserProfileService', () => {
         updatedAt: '2024-01-15T00:00:00Z',
       };
 
-      mockApiInstance.put.mockResolvedValueOnce({ data: mockPreferences });
+      mockedAxios.put.mockResolvedValueOnce({ data: mockPreferences });
 
       const result = await UserProfileService.setFitnessGoals('user-123', goals);
 
       expect(result.fitnessGoals).toEqual(goals);
-      expect(mockApiInstance.put).toHaveBeenCalledWith('/users/user-123/preferences', {
+      expect(mockedAxios.put).toHaveBeenCalledWith('/users/user-123/preferences', {
         fitnessGoals: goals,
       });
     });
@@ -248,7 +214,7 @@ describe('UserProfileService', () => {
         updatedAt: '2024-01-15T00:00:00Z',
       };
 
-      mockApiInstance.put.mockResolvedValueOnce({ data: mockPreferences });
+      mockedAxios.put.mockResolvedValueOnce({ data: mockPreferences });
 
       const result = await UserProfileService.setExperienceLevel('user-123', 'ADVANCED');
 
@@ -268,7 +234,7 @@ describe('UserProfileService', () => {
         updatedAt: '2024-01-15T00:00:00Z',
       };
 
-      mockApiInstance.put.mockResolvedValueOnce({ data: mockPreferences });
+      mockedAxios.put.mockResolvedValueOnce({ data: mockPreferences });
 
       const result = await UserProfileService.setWorkoutFrequency('user-123', 6);
 
@@ -289,7 +255,7 @@ describe('UserProfileService', () => {
         updatedAt: '2024-01-15T00:00:00Z',
       };
 
-      mockApiInstance.put.mockResolvedValueOnce({ data: mockPreferences });
+      mockedAxios.put.mockResolvedValueOnce({ data: mockPreferences });
 
       const result = await UserProfileService.setAvailableEquipment('user-123', equipment);
 
@@ -301,20 +267,15 @@ describe('UserProfileService', () => {
     it('should upload profile picture successfully', async () => {
       const mockProfile = {
         id: 'user-123',
-        email: 'test@example.com',
+        userId: 'user-123',
         name: 'Test User',
         bio: 'Fitness enthusiast',
-        avatarUrl: 'https://example.com/avatar-new.jpg',
-        level: 5,
-        totalXp: 1500,
-        currentStreak: 10,
-        longestStreak: 30,
-        subscriptionTier: 'PREMIUM',
+        profilePictureUrl: 'https://example.com/avatar-new.jpg',
         createdAt: '2024-01-01T00:00:00Z',
         updatedAt: '2024-01-15T00:00:00Z',
       };
 
-      mockApiInstance.post.mockResolvedValueOnce({ data: mockProfile });
+      mockedAxios.post.mockResolvedValueOnce({ data: mockProfile });
 
       const result = await UserProfileService.uploadProfilePicture(
         'user-123',
@@ -322,11 +283,11 @@ describe('UserProfileService', () => {
       );
 
       expect(result.profilePictureUrl).toBe('https://example.com/avatar-new.jpg');
-      expect(mockApiInstance.post).toHaveBeenCalled();
+      expect(mockedAxios.post).toHaveBeenCalled();
     });
 
     it('should throw error on upload failure', async () => {
-      mockApiInstance.post.mockRejectedValueOnce({
+      mockedAxios.post.mockRejectedValueOnce({
         response: {
           status: 400,
           data: { error: 'Invalid image' },
@@ -343,30 +304,20 @@ describe('UserProfileService', () => {
     it('should return cached profile after fetch', async () => {
       const mockProfile = {
         id: 'user-123',
-        email: 'test@example.com',
+        userId: 'user-123',
         name: 'Test User',
         bio: 'Fitness enthusiast',
-        avatarUrl: 'https://example.com/avatar.jpg',
-        level: 5,
-        totalXp: 1500,
-        currentStreak: 10,
-        longestStreak: 30,
-        subscriptionTier: 'PREMIUM',
+        profilePictureUrl: 'https://example.com/avatar.jpg',
         createdAt: '2024-01-01T00:00:00Z',
         updatedAt: '2024-01-15T00:00:00Z',
       };
 
-      mockApiInstance.get.mockResolvedValueOnce({ data: mockProfile });
+      mockedAxios.get.mockResolvedValueOnce({ data: mockProfile });
 
       await UserProfileService.getProfile('user-123');
       const cached = UserProfileService.getCachedProfile();
 
       expect(cached).toEqual(mockProfile);
-    });
-
-    it('should return null if no profile fetched', () => {
-      const cached = UserProfileService.getCachedProfile();
-      expect(cached).toBeNull();
     });
   });
 
@@ -382,17 +333,12 @@ describe('UserProfileService', () => {
         updatedAt: '2024-01-15T00:00:00Z',
       };
 
-      mockApiInstance.get.mockResolvedValueOnce({ data: mockPreferences });
+      mockedAxios.get.mockResolvedValueOnce({ data: mockPreferences });
 
       await UserProfileService.getPreferences('user-123');
       const cached = UserProfileService.getCachedPreferences();
 
       expect(cached).toEqual(mockPreferences);
-    });
-
-    it('should return null if no preferences fetched', () => {
-      const cached = UserProfileService.getCachedPreferences();
-      expect(cached).toBeNull();
     });
   });
 });

@@ -148,8 +148,9 @@ describe('SyncEngine', () => {
       };
 
       mockedDbManager.executeSql = jest.fn().mockResolvedValue({ rows: mockRows });
-      mockedAxios.post = jest.fn().mockRejectedValueOnce(new Error('Network error'));
-      mockedAxios.post = jest.fn().mockResolvedValueOnce({ data: {} });
+      mockedAxios.post = jest.fn()
+        .mockRejectedValueOnce(new Error('Network error'))
+        .mockResolvedValueOnce({ data: {} });
 
       const result = await SyncEngine.syncAll(userId);
 

@@ -203,4 +203,5 @@ export class UserProfileService {
   }
 }
 
+export { UserProfileService };
 export default UserProfileService.getInstance();

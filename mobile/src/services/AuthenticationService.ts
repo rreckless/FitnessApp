@@ -1,7 +1,7 @@
 import * as Keychain from 'react-native-keychain';
 import axios, { AxiosInstance } from 'axios';
-import type { User, TokenPair, AuthResponse, AuthErrorType } from '@types/index';
-import { AuthError } from '@types/index';
+import type { User, TokenPair, AuthResponse } from '@types/index';
+import { AuthError, AuthErrorType } from '@types/index';
 import Config from '@config/Config';
 
 export class AuthenticationService {
@@ -236,8 +236,8 @@ export class AuthenticationService {
   /**
    * Check if token is expired
    */
-  isTokenExpired(token: string): boolean {
-    const expirationTime = this.extractExpirationFromToken(token);
+  static isTokenExpired(token: string): boolean {
+    const expirationTime = AuthenticationService.extractExpirationFromTokenStatic(token);
     if (!expirationTime) return true;
     return new Date() > expirationTime;
   }
@@ -245,17 +245,17 @@ export class AuthenticationService {
   /**
    * Check if token should be refreshed (expires within 5 minutes)
    */
-  shouldRefreshToken(token: string): boolean {
-    const expirationTime = this.extractExpirationFromToken(token);
+  static shouldRefreshToken(token: string): boolean {
+    const expirationTime = AuthenticationService.extractExpirationFromTokenStatic(token);
     if (!expirationTime) return true;
     const refreshThreshold = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
     return expirationTime < refreshThreshold;
   }
 
   /**
-   * Extract expiration time from JWT token
+   * Extract expiration time from JWT token (static version)
    */
-  private extractExpirationFromToken(token: string): Date | null {
+  private static extractExpirationFromTokenStatic(token: string): Date | null {
     try {
       const parts = token.split('.');
       if (parts.length !== 3) return null;
@@ -370,4 +370,5 @@ export class AuthenticationService {
   }
 }
 
+export { AuthenticationService };
 export default AuthenticationService.getInstance();

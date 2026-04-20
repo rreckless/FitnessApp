@@ -2,9 +2,11 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import * as Sentry from '@sentry/node';
+import Redis from 'ioredis';
 import { config } from './config/config';
 import { initializeSentry, logger } from './logging/logger';
 import { initializeDatabase, closeDatabase } from './database/connection';
+import { initializeRedis, startBatchJob, stopBatchJob } from './services/leaderboardService';
 import authRoutes from './routes/authRoutes';
 import mfaRoutes from './routes/mfaRoutes';
 import fraudDetectionRoutes from './routes/fraudDetectionRoutes';
@@ -119,6 +121,31 @@ async function startServer(): Promise<void> {
     // Initialize database
     await initializeDatabase();
 
+    // Initialize Redis for leaderboard caching
+    const redisClient = new Redis({
+      host: config.redis.host,
+      port: config.redis.port,
+      password: config.redis.password || undefined,
+      retryStrategy: (times: number) => {
+        const delay = Math.min(times * 50, 2000);
+        return delay;
+      },
+    });
+
+    redisClient.on('error', (err: Error) => {
+      logger.error('Redis connection error', err);
+    });
+
+    redisClient.on('connect', () => {
+      logger.info('Redis connected');
+    });
+
+    // Initialize leaderboard service with Redis
+    initializeRedis(redisClient);
+
+    // Start leaderboard batch job (recalculates rankings every 5 minutes)
+    startBatchJob();
+
     // Start listening
     app.listen(config.port, () => {
       logger.info(`Server running on port ${config.port} in ${config.nodeEnv} mode`);
@@ -134,6 +161,7 @@ async function startServer(): Promise<void> {
  */
 async function shutdown(): Promise<void> {
   logger.info('Shutting down gracefully...');
+  stopBatchJob();
   await closeDatabase();
   process.exit(0);
 }

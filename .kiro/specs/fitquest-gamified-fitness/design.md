@@ -21,16 +21,16 @@ FitQuest is a gamified fitness application that combines workout logging, progre
 ┌─────────────────────────────────────────────────────────────┐
 │                     FitQuest Mobile App                      │
 │  ┌──────────────────────────────────────────────────────┐   │
-│  │              Presentation Layer (SwiftUI)            │   │
+│  │         Presentation Layer (React Native)            │   │
 │  │  Home | Workouts | Progress | Social | Profile       │   │
 │  └──────────────────────────────────────────────────────┘   │
 │  ┌──────────────────────────────────────────────────────┐   │
-│  │           Business Logic Layer (Swift)               │   │
+│  │        Business Logic Layer (TypeScript)             │   │
 │  │  XP Engine | Streak Manager | Achievement Tracker    │   │
 │  │  Workout Logger | Progress Calculator | AI Trainer   │   │
 │  └──────────────────────────────────────────────────────┘   │
 │  ┌──────────────────────────────────────────────────────┐   │
-│  │         Local Storage Layer (SQLite + FileSystem)    │   │
+│  │    Local Storage Layer (SQLite + FileSystem)         │   │
 │  │  Workouts | Users | Exercises | Sync Queue          │   │
 │  └──────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────┘
@@ -60,15 +60,16 @@ FitQuest is a gamified fitness application that combines workout logging, progre
 
 ### Technology Stack
 
-**Mobile (iOS)**
-- Language: Swift 5.9+
-- UI Framework: SwiftUI
-- Local Database: SQLite (via GRDB)
-- Networking: URLSession with custom retry logic
-- Location: CoreLocation
-- Health: HealthKit
-- Music: MediaPlayer + Spotify SDK
-- Widgets: WidgetKit
+**Mobile (iOS & Android)**
+- Language: TypeScript
+- UI Framework: React Native
+- Local Database: SQLite (via react-native-sqlite-storage)
+- Networking: Axios with custom retry logic
+- Location: react-native-geolocation-service
+- Health: react-native-health (Apple Health), react-native-google-fit (Google Fit)
+- Music: react-native-track-player (Spotify integration)
+- Storage: AsyncStorage (key-value), react-native-keychain (secure storage)
+- Testing: Jest with comprehensive mocking
 
 **Backend**
 - Runtime: Node.js 18+
@@ -1039,11 +1040,19 @@ SQLite Database Structure:
 ├── progress_photos (local + synced)
 └── sync_queue (pending operations)
 
-File System Structure:
-├── /Documents/fitquest/
-│   ├── /photos/ (progress photos)
-│   ├── /cache/ (exercise library, images)
-│   └── /temp/ (temporary files)
+React Native Storage Structure:
+├── AsyncStorage (key-value pairs)
+│   ├── user_token (JWT token)
+│   ├── user_id (current user ID)
+│   ├── last_sync_time (timestamp)
+│   └── app_preferences (user settings)
+├── react-native-keychain (secure storage)
+│   ├── refresh_token (secure JWT refresh token)
+│   └── device_fingerprint (device identifier)
+└── FileSystem (media files)
+    ├── /photos/ (progress photos)
+    ├── /cache/ (exercise library, images)
+    └── /temp/ (temporary files)
 ```
 
 ### Sync Queue Management
@@ -1071,7 +1080,7 @@ Sync Process:
    a. Fetch all PENDING entries
    b. For each entry:
       - Set status to SYNCING
-      - Send to cloud API
+      - Send to cloud API via axios
       - If success: set status to SYNCED, delete from queue
       - If failure: increment retryCount, set status to FAILED
    c. Retry failed entries up to 3 times with exponential backoff
@@ -1790,6 +1799,12 @@ FitQuest employs both unit testing and property-based testing to ensure comprehe
 
 ### Unit Testing Strategy
 
+**Test Framework**
+- Mobile: Jest with TypeScript support
+- Backend: Jest with TypeScript support
+- Mocking: jest.mock() for dependencies (axios, AsyncStorage, Keychain, DatabaseManager)
+- Coverage: Aim for 80%+ code coverage
+
 **Test Categories**
 
 1. **Authentication Tests**
@@ -1863,8 +1878,8 @@ FitQuest employs both unit testing and property-based testing to ensure comprehe
 ### Property-Based Testing Strategy
 
 **Testing Framework**
-- iOS: SwiftCheck (QuickCheck for Swift)
-- Backend: fast-check (JavaScript)
+- Mobile: fast-check (JavaScript property-based testing)
+- Backend: fast-check (JavaScript property-based testing)
 - Minimum 100 iterations per property test
 - Seed-based reproducibility for failed tests
 
@@ -1872,27 +1887,32 @@ FitQuest employs both unit testing and property-based testing to ensure comprehe
 
 Each correctness property will be implemented as a single property-based test with the following structure:
 
-```swift
+```typescript
 // Example: Property 1 - Authentication Round Trip
-func testAuthenticationRoundTrip() {
-  // Feature: fitquest-gamified-fitness, Property 1: Authentication Round Trip
-  
-  property(forAll: validEmailGenerator, validPasswordGenerator) { email, password in
-    // 1. Register with credentials
-    let registerResult = authService.register(email: email, password: password)
-    guard case .success(let user) = registerResult else { return false }
-    
-    // 2. Logout
-    authService.logout()
-    
-    // 3. Login with same credentials
-    let loginResult = authService.login(email: email, password: password)
-    guard case .success(let loggedInUser) = loginResult else { return false }
-    
-    // 4. Verify same user account
-    return user.id == loggedInUser.id && user.email == loggedInUser.email
-  }
-}
+describe('Property 1: Authentication Round Trip', () => {
+  it('should authenticate user round trip', () => {
+    fc.assert(
+      fc.property(validEmailGenerator, validPasswordGenerator, (email, password) => {
+        // 1. Register with credentials
+        const registerResult = authService.register(email, password);
+        if (!registerResult.success) return false;
+        const user = registerResult.user;
+        
+        // 2. Logout
+        authService.logout();
+        
+        // 3. Login with same credentials
+        const loginResult = authService.login(email, password);
+        if (!loginResult.success) return false;
+        const loggedInUser = loginResult.user;
+        
+        // 4. Verify same user account
+        return user.id === loggedInUser.id && user.email === loggedInUser.email;
+      }),
+      { numRuns: 100 }
+    );
+  });
+});
 ```
 
 **Property Test Configuration**
@@ -1981,7 +2001,7 @@ func testAuthenticationRoundTrip() {
 
 **Manual Testing**
 - User acceptance testing before release
-- Cross-device testing (multiple iOS versions)
+- Cross-device testing (multiple iOS/Android versions)
 - Network condition testing (WiFi, 4G, 3G, offline)
 - Battery and memory profiling
 

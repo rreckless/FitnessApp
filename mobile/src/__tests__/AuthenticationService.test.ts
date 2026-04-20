@@ -1,5 +1,6 @@
 import AuthenticationService from '@services/AuthenticationService';
-import { mockAxiosInstance, mockKeychain, mockAsyncStorage } from './setup';
+import { AuthenticationService as AuthenticationServiceClass } from '@services/AuthenticationService';
+import { mockAxiosInstance, mockKeychain } from './setup';
 
 const mockedAxios = mockAxiosInstance;
 const mockedKeychain = mockKeychain;
@@ -167,49 +168,49 @@ describe('AuthenticationService', () => {
 
   describe('isValidPassword', () => {
     it('should accept valid password', () => {
-      const isValid = AuthenticationService.isValidPassword('ValidPass123!');
+      const isValid = AuthenticationServiceClass.prototype.isValidPassword.call({}, 'ValidPass123!');
       expect(isValid).toBe(true);
     });
 
     it('should reject password < 12 characters', () => {
-      const isValid = AuthenticationService.isValidPassword('Short1!');
+      const isValid = AuthenticationServiceClass.prototype.isValidPassword.call({}, 'Short1!');
       expect(isValid).toBe(false);
     });
 
     it('should reject password without uppercase', () => {
-      const isValid = AuthenticationService.isValidPassword('validpass123!');
+      const isValid = AuthenticationServiceClass.prototype.isValidPassword.call({}, 'validpass123!');
       expect(isValid).toBe(false);
     });
 
     it('should reject password without lowercase', () => {
-      const isValid = AuthenticationService.isValidPassword('VALIDPASS123!');
+      const isValid = AuthenticationServiceClass.prototype.isValidPassword.call({}, 'VALIDPASS123!');
       expect(isValid).toBe(false);
     });
 
     it('should reject password without number', () => {
-      const isValid = AuthenticationService.isValidPassword('ValidPass!');
+      const isValid = AuthenticationServiceClass.prototype.isValidPassword.call({}, 'ValidPass!');
       expect(isValid).toBe(false);
     });
 
     it('should reject password without special character', () => {
-      const isValid = AuthenticationService.isValidPassword('ValidPass123');
+      const isValid = AuthenticationServiceClass.prototype.isValidPassword.call({}, 'ValidPass123');
       expect(isValid).toBe(false);
     });
   });
 
   describe('isValidEmail', () => {
     it('should accept valid email', () => {
-      const isValid = AuthenticationService.isValidEmail('test@example.com');
+      const isValid = AuthenticationServiceClass.prototype.isValidEmail.call({}, 'test@example.com');
       expect(isValid).toBe(true);
     });
 
     it('should reject invalid email', () => {
-      const isValid = AuthenticationService.isValidEmail('invalid-email');
+      const isValid = AuthenticationServiceClass.prototype.isValidEmail.call({}, 'invalid-email');
       expect(isValid).toBe(false);
     });
 
     it('should reject email without domain', () => {
-      const isValid = AuthenticationService.isValidEmail('test@');
+      const isValid = AuthenticationServiceClass.prototype.isValidEmail.call({}, 'test@');
       expect(isValid).toBe(false);
     });
   });
@@ -217,14 +218,14 @@ describe('AuthenticationService', () => {
   describe('isTokenExpired', () => {
     it('should return true for expired token', () => {
       const expiredToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE2MDAwMDAwMDB9.test';
-      const isExpired = AuthenticationService.isTokenExpired(expiredToken);
+      const isExpired = AuthenticationServiceClass.isTokenExpired(expiredToken);
       expect(isExpired).toBe(true);
     });
 
     it('should return false for valid token', () => {
       const futureTimestamp = Math.floor(Date.now() / 1000) + 3600; // 1 hour from now
       const validToken = `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.${Buffer.from(JSON.stringify({ exp: futureTimestamp })).toString('base64')}.test`;
-      const isExpired = AuthenticationService.isTokenExpired(validToken);
+      const isExpired = AuthenticationServiceClass.isTokenExpired(validToken);
       expect(isExpired).toBe(false);
     });
   });
@@ -233,14 +234,14 @@ describe('AuthenticationService', () => {
     it('should return true if token expires within 5 minutes', () => {
       const soonTimestamp = Math.floor(Date.now() / 1000) + 60; // 1 minute from now
       const soonToken = `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.${Buffer.from(JSON.stringify({ exp: soonTimestamp })).toString('base64')}.test`;
-      const shouldRefresh = AuthenticationService.shouldRefreshToken(soonToken);
+      const shouldRefresh = AuthenticationServiceClass.shouldRefreshToken(soonToken);
       expect(shouldRefresh).toBe(true);
     });
 
     it('should return false if token expires after 5 minutes', () => {
       const laterTimestamp = Math.floor(Date.now() / 1000) + 3600; // 1 hour from now
       const laterToken = `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.${Buffer.from(JSON.stringify({ exp: laterTimestamp })).toString('base64')}.test`;
-      const shouldRefresh = AuthenticationService.shouldRefreshToken(laterToken);
+      const shouldRefresh = AuthenticationServiceClass.shouldRefreshToken(laterToken);
       expect(shouldRefresh).toBe(false);
     });
   });

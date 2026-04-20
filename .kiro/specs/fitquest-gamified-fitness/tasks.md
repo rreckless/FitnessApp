@@ -166,22 +166,22 @@ FitQuest is implemented across two platforms: iOS (Swift) for the mobile app and
   - Implement level-up notifications
   - _Requirements: 6.2, 6.3_
 
-- [ ] 2.8 Write property test for level progression
+- [x] 2.8 Write property test for level progression
   - **Property 6: Level Progression**
   - **Validates: Requirements 6.2**
 
-- [ ] 2.9 Implement muscle group rank system (backend)
+- [x] 2.9 Implement muscle group rank system (backend)
   - Create muscle group rank tracking by volume
   - Implement percentile-based rank thresholds (Rank 1-5 based on top 20%, 40%, 60%, 80%, 100%)
   - Create weekly batch job to recalculate percentiles
   - Implement rank-up notifications
   - _Requirements: 6.4, 6.5_
 
-- [ ] 2.10 Write property test for muscle group rank tracking
+- [x] 2.10 Write property test for muscle group rank tracking
   - **Property 7: Muscle Group Rank Tracking**
   - **Validates: Requirements 6.4, 6.5**
 
-- [ ] 2.11 Implement muscle group rank service (iOS)
+- [x] 2.11 Implement muscle group rank service (iOS)
   - Create MuscleGroupRankService with local caching
   - Implement rank display on profile
   - Create rank-up notifications
@@ -215,7 +215,7 @@ FitQuest is implemented across two platforms: iOS (Swift) for the mobile app and
   - Test longest streak preservation
   - _Requirements: 7.0_
 
-- [ ] 2.17 Implement achievement system (backend)
+- [x] 2.17 Implement achievement system (backend)
   - Create achievement definitions with rarity tiers (Common, Rare, Epic, Legendary)
   - Implement achievement categories (Strength, Consistency, Social, Exploration)
   - Create achievement unlock condition evaluation
@@ -223,29 +223,29 @@ FitQuest is implemented across two platforms: iOS (Swift) for the mobile app and
   - Create at least 50 achievements
   - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.6_
 
-- [ ] 2.18 Write property test for achievement unlock correctness
+- [x] 2.18 Write property test for achievement unlock correctness
   - **Property 10: Achievement Unlock Correctness**
   - **Validates: Requirements 8.3, 8.4**
 
-- [ ] 2.19 Write property test for achievement metadata
+- [x] 2.19 Write property test for achievement metadata
   - **Property 11: Achievement Metadata**
   - **Validates: Requirements 8.1, 8.2, 8.5**
 
-- [ ] 2.20 Implement achievement service (iOS)
+- [x] 2.20 Implement achievement service (iOS)
   - Create AchievementService with local caching
   - Implement achievement unlock detection
   - Create achievement notification system
   - Implement achievement gallery display
   - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6_
 
-- [ ] 2.21 Write unit tests for achievement system
+- [x] 2.21 Write unit tests for achievement system
   - Test achievement unlock conditions
   - Test XP bonus distribution
   - Test achievement notifications
   - Test achievement display and filtering
   - _Requirements: 8.0_
 
-- [ ] 2.22 Checkpoint - Ensure all core feature tests pass
+- [x] 2.22 Checkpoint - Ensure all core feature tests pass
   - Ensure all unit and property tests pass for workouts, XP, streaks, and achievements
   - Verify XP calculations are accurate
   - Verify streak logic handles edge cases
@@ -254,7 +254,7 @@ FitQuest is implemented across two platforms: iOS (Swift) for the mobile app and
 
 ## Phase 3: Social & Progression (Leaderboards, Friends, Activity Feed, Challenges)
 
-- [ ] 3.1 Implement leaderboard system (backend)
+- [x] 3.1 Implement leaderboard system (backend)
   - Create global leaderboard ranking by total XP
   - Create friends leaderboard ranking by total XP
   - Create weekly leaderboard ranking by weekly XP with Monday reset
@@ -262,7 +262,7 @@ FitQuest is implemented across two platforms: iOS (Swift) for the mobile app and
   - Create batch job to recalculate rankings every 5 minutes
   - _Requirements: 9.1, 9.2, 9.3, 9.6, 9.7_
 
-- [ ] 3.2 Write property test for leaderboard ranking correctness
+- [x] 3.2 Write property test for leaderboard ranking correctness
   - **Property 12: Leaderboard Ranking Correctness**
   - **Validates: Requirements 9.1, 9.2, 9.3, 9.4**
 
