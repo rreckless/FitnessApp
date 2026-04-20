@@ -1,8 +1,6 @@
 import fc from 'fast-check';
 import * as leaderboardService from '../leaderboardService';
 import { query } from '../../database/connection';
-import Redis from 'ioredis';
-import { logger } from '../../logging/logger';
 
 // Mock dependencies
 jest.mock('../../database/connection');
@@ -15,7 +13,7 @@ jest.mock('../../logging/logger');
  * **Validates: Requirements 9.1, 9.2, 9.3, 9.4**
  */
 describe('Leaderboard Service - Property-Based Tests', () => {
-  let mockRedis: jest.Mocked<Redis>;
+  let mockRedis: any;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -106,7 +104,6 @@ describe('Leaderboard Service - Property-Based Tests', () => {
       fc.property(
         fc.integer({ min: 0, max: 99 }),
         (zrevrank) => {
-          const userId = 'user-1';
           const xp = 5000;
 
           (mockRedis.zscore as jest.Mock).mockResolvedValue(xp);
@@ -132,8 +129,6 @@ describe('Leaderboard Service - Property-Based Tests', () => {
    * **Validates: Requirements 9.4**
    */
   it('Property 12.3: User not on leaderboard has rank -1', () => {
-    const userId = 'user-not-found';
-
     (mockRedis.zscore as jest.Mock).mockResolvedValue(null);
 
     // When user is not found, rank should be -1
@@ -240,7 +235,7 @@ describe('Leaderboard Service - Property-Based Tests', () => {
   it('Property 12.7: Weekly leaderboard uses only current week XP', () => {
     fc.assert(
       fc.property(
-        fc.date(),
+        fc.date({ min: new Date('2000-01-01'), max: new Date('2100-12-31') }),
         (date) => {
           // Calculate Monday 00:00 UTC for the given date
           const dayOfWeek = date.getUTCDay();
@@ -300,8 +295,6 @@ describe('Leaderboard Service - Property-Based Tests', () => {
       fc.property(
         fc.integer({ min: 0, max: 1000000 }),
         (totalXP) => {
-          const userId = 'user-1';
-
           (mockRedis.zscore as jest.Mock).mockResolvedValue(totalXP);
           (query as jest.Mock).mockResolvedValue({
             rows: [{ total_xp: totalXP, level: 10 }],
@@ -330,8 +323,6 @@ describe('Leaderboard Service - Property-Based Tests', () => {
       fc.property(
         fc.integer({ min: 0, max: 1000000 }),
         (xp) => {
-          const userId = 'user-1';
-
           // Same XP should result in same rank
           (mockRedis.zscore as jest.Mock).mockResolvedValue(xp);
           (mockRedis.zrevrank as jest.Mock).mockResolvedValue(5);
@@ -487,8 +478,6 @@ describe('Leaderboard Service - Property-Based Tests', () => {
       fc.property(
         fc.integer({ min: 0, max: 1000000 }),
         (totalXP) => {
-          const userId = 'user-1';
-
           // Total XP should be same on global and friends leaderboards
           (mockRedis.zscore as jest.Mock).mockResolvedValue(totalXP);
 

@@ -48,8 +48,10 @@ export async function initializeDatabase(): Promise<void> {
 export async function initializeRedis(): Promise<void> {
   try {
     redisClient = createClient({
-      host: config.redis.host,
-      port: config.redis.port,
+      socket: {
+        host: config.redis.host,
+        port: config.redis.port,
+      },
       password: config.redis.password || undefined,
     }) as RedisClientType;
 

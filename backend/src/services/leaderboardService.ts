@@ -1,5 +1,5 @@
 import { query } from '../database/connection';
-import logger from '../logging/logger';
+import { logger } from '../logging/logger';
 import Redis from 'ioredis';
 
 // MARK: - Types
@@ -77,7 +77,7 @@ export async function getGlobalLeaderboard(limit: number = 100, offset: number =
     const entries = await redis.zrevrange(REDIS_GLOBAL_KEY, offset, offset + limit - 1, 'WITHSCORES');
 
     if (entries.length === 0) {
-      logger.warn('Global leaderboard cache empty, recalculating');
+      logger.warning('Global leaderboard cache empty, recalculating');
       await recalculateAllRankings();
       return getGlobalLeaderboard(limit, offset);
     }
@@ -182,7 +182,7 @@ export async function getWeeklyLeaderboard(limit: number = 100, offset: number =
     const entries = await redis.zrevrange(REDIS_WEEKLY_KEY, offset, offset + limit - 1, 'WITHSCORES');
 
     if (entries.length === 0) {
-      logger.warn('Weekly leaderboard cache empty, recalculating');
+      logger.warning('Weekly leaderboard cache empty, recalculating');
       await recalculateWeeklyRankings();
       return getWeeklyLeaderboard(limit, offset);
     }
@@ -243,7 +243,7 @@ export async function getUserRankPosition(userId: string, leaderboardType: 'glob
     const score = await redis.zscore(key, userId);
 
     if (score === null) {
-      logger.warn('User not found on leaderboard', { userId, leaderboardType });
+      logger.warning('User not found on leaderboard', { userId, leaderboardType });
       return {
         userId,
         rank: -1,
@@ -272,7 +272,7 @@ export async function getUserRankPosition(userId: string, leaderboardType: 'glob
     return {
       userId,
       rank: rank + 1,
-      xp: Math.floor(score),
+      xp: Math.floor(Number(score)),
       level,
     };
   } catch (error) {
@@ -648,7 +648,7 @@ let batchJobInterval: NodeJS.Timeout | null = null;
  */
 export function startBatchJob(): void {
   if (batchJobInterval) {
-    logger.warn('Batch job already running');
+    logger.warning('Batch job already running');
     return;
   }
 

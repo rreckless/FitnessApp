@@ -12,15 +12,14 @@ import {
   stopBatchJob,
 } from '../leaderboardService';
 import { query } from '../../database/connection';
-import Redis from 'ioredis';
-import logger from '../../logging/logger';
+import { logger } from '../../logging/logger';
 
 // Mock dependencies
 jest.mock('../../database/connection');
 jest.mock('../../logging/logger');
 
 describe('LeaderboardService', () => {
-  let mockRedis: jest.Mocked<Redis>;
+  let mockRedis: any;
   const mockUserId = 'user-1';
   const mockFriendId = 'user-2';
   const mockUserId3 = 'user-3';
@@ -373,7 +372,7 @@ describe('LeaderboardService', () => {
 
       // Should only log once (already running warning)
       expect(finalCallCount - initialCallCount).toBe(1);
-      expect(logger.warn).toHaveBeenCalledWith('Batch job already running');
+      expect(logger.warning).toHaveBeenCalledWith('Batch job already running');
 
       stopBatchJob();
     });

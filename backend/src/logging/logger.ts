@@ -118,7 +118,8 @@ export class Logger {
     console.log(`[SECURITY] ${event.eventType}`, logEntry);
 
     // Also send to Sentry for monitoring
-    Sentry.captureMessage(`Security Event: ${event.eventType}`, 'info', {
+    Sentry.captureMessage(`Security Event: ${event.eventType}`, {
+      level: 'info',
       extra: logEntry,
     });
   }

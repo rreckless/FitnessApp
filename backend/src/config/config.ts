@@ -102,5 +102,5 @@ validateJwtSecrets();
 
 // ✅ Fix 1.3: Log warning if using generated secrets in development
 if (config.nodeEnv === 'development' && !process.env.JWT_SECRET) {
-  logger.warn('Using generated JWT secrets for development - not suitable for production');
+  logger.warning('Using generated JWT secrets for development - not suitable for production');
 }
