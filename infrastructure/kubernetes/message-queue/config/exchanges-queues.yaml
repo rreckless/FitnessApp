@@ -1,0 +1,380 @@
+# RabbitMQ Exchanges and Queues Configuration
+# This file documents the event-driven architecture for FitQuest microservices
+
+---
+# Exchanges
+exchanges:
+  # Workout Events
+  - name: fitquest.events.workout
+    type: topic
+    durable: true
+    description: "Events related to workout completion and logging"
+    routing_keys:
+      - workout.completed
+
+  # Progression Events
+  - name: fitquest.events.progression
+    type: topic
+    durable: true
+    description: "Events related to user progression (levels, ranks)"
+    routing_keys:
+      - progression.levelup
+      - progression.rankup
+
+  # Streak Events
+  - name: fitquest.events.streak
+    type: topic
+    durable: true
+    description: "Events related to streak milestones"
+    routing_keys:
+      - streak.milestone
+
+  # Achievement Events
+  - name: fitquest.events.achievement
+    type: topic
+    durable: true
+    description: "Events related to achievement unlocks"
+    routing_keys:
+      - achievement.unlocked
+
+  # Social Events
+  - name: fitquest.events.social
+    type: topic
+    durable: true
+    description: "Events related to social interactions"
+    routing_keys:
+      - social.friendship.created
+
+  # Subscription Events
+  - name: fitquest.events.subscription
+    type: topic
+    durable: true
+    description: "Events related to subscription changes"
+    routing_keys:
+      - subscription.upgraded
+
+  # Dead Letter Exchanges
+  - name: fitquest.dlx.workout
+    type: topic
+    durable: true
+    description: "Dead letter exchange for workout events"
+
+  - name: fitquest.dlx.progression
+    type: topic
+    durable: true
+    description: "Dead letter exchange for progression events"
+
+  - name: fitquest.dlx.streak
+    type: topic
+    durable: true
+    description: "Dead letter exchange for streak events"
+
+  - name: fitquest.dlx.achievement
+    type: topic
+    durable: true
+    description: "Dead letter exchange for achievement events"
+
+  - name: fitquest.dlx.social
+    type: topic
+    durable: true
+    description: "Dead letter exchange for social events"
+
+  - name: fitquest.dlx.subscription
+    type: topic
+    durable: true
+    description: "Dead letter exchange for subscription events"
+
+---
+# Queues
+queues:
+  # Workout Completed Event Queues
+  - name: xp-service-workout-completed
+    durable: true
+    dead_letter_exchange: fitquest.dlx.workout
+    dead_letter_routing_key: workout.completed.dlq
+    message_ttl: 86400000  # 24 hours
+    description: "XP Service consumes workout completed events"
+
+  - name: achievement-service-workout-completed
+    durable: true
+    dead_letter_exchange: fitquest.dlx.workout
+    dead_letter_routing_key: workout.completed.dlq
+    message_ttl: 86400000
+    description: "Achievement Service consumes workout completed events"
+
+  - name: activity-feed-service-workout-completed
+    durable: true
+    dead_letter_exchange: fitquest.dlx.workout
+    dead_letter_routing_key: workout.completed.dlq
+    message_ttl: 86400000
+    description: "Activity Feed Service consumes workout completed events"
+
+  # Level Up Event Queues
+  - name: leaderboard-service-levelup
+    durable: true
+    dead_letter_exchange: fitquest.dlx.progression
+    dead_letter_routing_key: progression.levelup.dlq
+    message_ttl: 86400000
+    description: "Leaderboard Service consumes level up events"
+
+  - name: achievement-service-levelup
+    durable: true
+    dead_letter_exchange: fitquest.dlx.progression
+    dead_letter_routing_key: progression.levelup.dlq
+    message_ttl: 86400000
+    description: "Achievement Service consumes level up events"
+
+  - name: activity-feed-service-levelup
+    durable: true
+    dead_letter_exchange: fitquest.dlx.progression
+    dead_letter_routing_key: progression.levelup.dlq
+    message_ttl: 86400000
+    description: "Activity Feed Service consumes level up events"
+
+  # Rank Up Event Queues
+  - name: achievement-service-rankup
+    durable: true
+    dead_letter_exchange: fitquest.dlx.progression
+    dead_letter_routing_key: progression.rankup.dlq
+    message_ttl: 86400000
+    description: "Achievement Service consumes rank up events"
+
+  - name: activity-feed-service-rankup
+    durable: true
+    dead_letter_exchange: fitquest.dlx.progression
+    dead_letter_routing_key: progression.rankup.dlq
+    message_ttl: 86400000
+    description: "Activity Feed Service consumes rank up events"
+
+  # Streak Milestone Event Queues
+  - name: achievement-service-streak-milestone
+    durable: true
+    dead_letter_exchange: fitquest.dlx.streak
+    dead_letter_routing_key: streak.milestone.dlq
+    message_ttl: 86400000
+    description: "Achievement Service consumes streak milestone events"
+
+  - name: activity-feed-service-streak-milestone
+    durable: true
+    dead_letter_exchange: fitquest.dlx.streak
+    dead_letter_routing_key: streak.milestone.dlq
+    message_ttl: 86400000
+    description: "Activity Feed Service consumes streak milestone events"
+
+  # Achievement Unlocked Event Queues
+  - name: activity-feed-service-achievement-unlocked
+    durable: true
+    dead_letter_exchange: fitquest.dlx.achievement
+    dead_letter_routing_key: achievement.unlocked.dlq
+    message_ttl: 86400000
+    description: "Activity Feed Service consumes achievement unlocked events"
+
+  # Friendship Created Event Queues
+  - name: activity-feed-service-friendship-created
+    durable: true
+    dead_letter_exchange: fitquest.dlx.social
+    dead_letter_routing_key: social.friendship.created.dlq
+    message_ttl: 86400000
+    description: "Activity Feed Service consumes friendship created events"
+
+  # Subscription Upgraded Event Queues
+  - name: feature-gating-service-subscription-upgraded
+    durable: true
+    dead_letter_exchange: fitquest.dlx.subscription
+    dead_letter_routing_key: subscription.upgraded.dlq
+    message_ttl: 86400000
+    description: "Feature Gating Service consumes subscription upgraded events"
+
+  # Dead Letter Queues
+  - name: workout-completed-dlq
+    durable: true
+    message_ttl: 604800000  # 7 days
+    description: "Dead letter queue for workout completed events"
+
+  - name: progression-levelup-dlq
+    durable: true
+    message_ttl: 604800000
+    description: "Dead letter queue for level up events"
+
+  - name: progression-rankup-dlq
+    durable: true
+    message_ttl: 604800000
+    description: "Dead letter queue for rank up events"
+
+  - name: streak-milestone-dlq
+    durable: true
+    message_ttl: 604800000
+    description: "Dead letter queue for streak milestone events"
+
+  - name: achievement-unlocked-dlq
+    durable: true
+    message_ttl: 604800000
+    description: "Dead letter queue for achievement unlocked events"
+
+  - name: social-friendship-created-dlq
+    durable: true
+    message_ttl: 604800000
+    description: "Dead letter queue for friendship created events"
+
+  - name: subscription-upgraded-dlq
+    durable: true
+    message_ttl: 604800000
+    description: "Dead letter queue for subscription upgraded events"
+
+---
+# Bindings
+bindings:
+  # Workout Completed Bindings
+  - queue: xp-service-workout-completed
+    exchange: fitquest.events.workout
+    routing_key: workout.completed
+
+  - queue: achievement-service-workout-completed
+    exchange: fitquest.events.workout
+    routing_key: workout.completed
+
+  - queue: activity-feed-service-workout-completed
+    exchange: fitquest.events.workout
+    routing_key: workout.completed
+
+  # Level Up Bindings
+  - queue: leaderboard-service-levelup
+    exchange: fitquest.events.progression
+    routing_key: progression.levelup
+
+  - queue: achievement-service-levelup
+    exchange: fitquest.events.progression
+    routing_key: progression.levelup
+
+  - queue: activity-feed-service-levelup
+    exchange: fitquest.events.progression
+    routing_key: progression.levelup
+
+  # Rank Up Bindings
+  - queue: achievement-service-rankup
+    exchange: fitquest.events.progression
+    routing_key: progression.rankup
+
+  - queue: activity-feed-service-rankup
+    exchange: fitquest.events.progression
+    routing_key: progression.rankup
+
+  # Streak Milestone Bindings
+  - queue: achievement-service-streak-milestone
+    exchange: fitquest.events.streak
+    routing_key: streak.milestone
+
+  - queue: activity-feed-service-streak-milestone
+    exchange: fitquest.events.streak
+    routing_key: streak.milestone
+
+  # Achievement Unlocked Bindings
+  - queue: activity-feed-service-achievement-unlocked
+    exchange: fitquest.events.achievement
+    routing_key: achievement.unlocked
+
+  # Friendship Created Bindings
+  - queue: activity-feed-service-friendship-created
+    exchange: fitquest.events.social
+    routing_key: social.friendship.created
+
+  # Subscription Upgraded Bindings
+  - queue: feature-gating-service-subscription-upgraded
+    exchange: fitquest.events.subscription
+    routing_key: subscription.upgraded
+
+  # Dead Letter Queue Bindings
+  - queue: workout-completed-dlq
+    exchange: fitquest.dlx.workout
+    routing_key: workout.completed.dlq
+
+  - queue: progression-levelup-dlq
+    exchange: fitquest.dlx.progression
+    routing_key: progression.levelup.dlq
+
+  - queue: progression-rankup-dlq
+    exchange: fitquest.dlx.progression
+    routing_key: progression.rankup.dlq
+
+  - queue: streak-milestone-dlq
+    exchange: fitquest.dlx.streak
+    routing_key: streak.milestone.dlq
+
+  - queue: achievement-unlocked-dlq
+    exchange: fitquest.dlx.achievement
+    routing_key: achievement.unlocked.dlq
+
+  - queue: social-friendship-created-dlq
+    exchange: fitquest.dlx.social
+    routing_key: social.friendship.created.dlq
+
+  - queue: subscription-upgraded-dlq
+    exchange: fitquest.dlx.subscription
+    routing_key: subscription.upgraded.dlq
+
+---
+# Event Schemas
+event_schemas:
+  WorkoutCompleted:
+    description: "Published when a user completes a workout"
+    properties:
+      userId: "string - User ID"
+      workoutId: "string - Workout ID"
+      duration: "number - Duration in seconds"
+      volume: "number - Total volume in pounds"
+      exercises: "array - List of exercises completed"
+      xpEarned: "number - XP earned from workout"
+      timestamp: "string - ISO 8601 timestamp"
+
+  LevelUp:
+    description: "Published when a user reaches a new level"
+    properties:
+      userId: "string - User ID"
+      newLevel: "number - New level"
+      totalXp: "number - Total XP accumulated"
+      milestone: "boolean - Whether this is a milestone level"
+      timestamp: "string - ISO 8601 timestamp"
+
+  RankUp:
+    description: "Published when a user reaches a new muscle group rank"
+    properties:
+      userId: "string - User ID"
+      muscleGroup: "string - Muscle group name"
+      newRank: "number - New rank"
+      totalVolume: "number - Total volume for muscle group"
+      timestamp: "string - ISO 8601 timestamp"
+
+  StreakMilestone:
+    description: "Published when a user reaches a streak milestone"
+    properties:
+      userId: "string - User ID"
+      streakDays: "number - Current streak in days"
+      milestone: "number - Milestone reached (7, 14, 30, 60, 100)"
+      xpBonus: "number - XP bonus awarded"
+      timestamp: "string - ISO 8601 timestamp"
+
+  AchievementUnlocked:
+    description: "Published when a user unlocks an achievement"
+    properties:
+      userId: "string - User ID"
+      achievementId: "string - Achievement ID"
+      achievementName: "string - Achievement name"
+      rarity: "string - Rarity tier (Common, Rare, Epic, Legendary)"
+      xpReward: "number - XP reward"
+      timestamp: "string - ISO 8601 timestamp"
+
+  FriendshipCreated:
+    description: "Published when a friendship is established"
+    properties:
+      userId: "string - User ID"
+      friendId: "string - Friend User ID"
+      timestamp: "string - ISO 8601 timestamp"
+
+  SubscriptionUpgraded:
+    description: "Published when a user upgrades subscription"
+    properties:
+      userId: "string - User ID"
+      previousTier: "string - Previous subscription tier"
+      newTier: "string - New subscription tier"
+      expiryDate: "string - Subscription expiry date"
+      timestamp: "string - ISO 8601 timestamp"

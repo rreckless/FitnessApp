@@ -1,0 +1,150 @@
+---
+# Nginx Ingress Controller ConfigMap
+# Contains Nginx configuration for rate limiting, request throttling, and optimization
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-config
+  namespace: ingress
+  labels:
+    app: nginx-ingress-controller
+data:
+  # Enable metrics
+  enable-metrics: "true"
+  metrics-per-host: "true"
+  
+  # TLS/SSL Configuration
+  ssl-protocols: "TLSv1.2 TLSv1.3"
+  ssl-ciphers: "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384"
+  ssl-prefer-server-ciphers: "true"
+  ssl-session-cache: "shared:SSL:10m"
+  ssl-session-timeout: "10m"
+  ssl-session-tickets: "false"
+  
+  # HTTP/2 Configuration
+  http2-max-field-size: "16k"
+  http2-max-header-size: "16k"
+  
+  # Request/Response Configuration
+  client-max-body-size: "10m"
+  client-body-buffer-size: "128k"
+  client-header-buffer-size: "1k"
+  large-client-header-buffers: "4 8k"
+  
+  # Timeout Configuration
+  client-body-timeout: "60"
+  client-header-timeout: "60"
+  keepalive-timeout: "65"
+  send-timeout: "60"
+  
+  # Upstream Configuration
+  upstream-keepalive-connections: "32"
+  upstream-keepalive-timeout: "60"
+  upstream-keepalive-requests: "100"
+  
+  # Rate Limiting Configuration
+  # Per-user rate limit: 100 requests per minute (1.67 req/sec)
+  limit-rps: "100"
+  # Per-IP rate limit: 50 requests per minute (0.83 req/sec)
+  limit-connections: "50"
+  # Burst size: 20 requests
+  limit-req-status: "429"
+  
+  # Gzip Compression
+  gzip: "true"
+  gzip-level: "6"
+  gzip-min-length: "1000"
+  gzip-types: "text/plain text/css text/xml text/javascript application/x-javascript application/xml+rss application/json"
+  gzip-vary: "true"
+  gzip-disable: "msie6"
+  
+  # Logging Configuration
+  log-format-upstream: '$remote_addr - $remote_user [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent" "$http_x_forwarded_for" rt=$request_time uct="$upstream_connect_time" uht="$upstream_header_time" urt="$upstream_response_time" uid="$upstream_addr"'
+  
+  # Security Headers
+  add-headers: "ingress/custom-headers"
+  
+  # Proxy Configuration
+  proxy-body-size: "10m"
+  proxy-connect-timeout: "60"
+  proxy-send-timeout: "60"
+  proxy-read-timeout: "60"
+  proxy-buffering: "true"
+  proxy-buffer-size: "4k"
+  proxy-buffers: "8 4k"
+  proxy-busy-buffers-size: "8k"
+  
+  # Cache Configuration
+  proxy-cache: "true"
+  proxy-cache-path: "/var/cache/nginx"
+  proxy-cache-valid: "200 10m"
+  proxy-cache-use-stale: "error timeout updating http_500 http_502 http_503 http_504"
+  
+  # CORS Configuration (if needed)
+  enable-cors: "true"
+  cors-allow-origin: "*"
+  cors-allow-credentials: "true"
+  cors-allow-methods: "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+  cors-allow-headers: "DNT,X-CustomHeader,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Authorization"
+  
+  # Modsecurity Configuration (WAF)
+  enable-modsecurity: "true"
+  enable-owasp-core-rules: "true"
+  modsecurity-snippet: |
+    SecRuleEngine On
+    SecRequestBodyLimit 10485760
+    SecRequestBodyNoFiles Off
+    SecRequestBodyInMemoryLimit 1048576
+    SecParsedContentType application/json
+    SecAuditEngine RelevantOnly
+    SecAuditLogParts ABIJDEFHZ
+    SecAuditLog /var/log/modsecurity/audit.log
+    SecDebugLog /var/log/modsecurity/debug.log
+    SecDebugLogLevel 3
+    SecDefaultAction "phase:1,log,auditlog,pass"
+    SecDefaultAction "phase:2,log,auditlog,pass"
+
+---
+# TCP Services ConfigMap (for TCP load balancing if needed)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tcp-services
+  namespace: ingress
+  labels:
+    app: nginx-ingress-controller
+data: {}
+
+---
+# UDP Services ConfigMap (for UDP load balancing if needed)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: udp-services
+  namespace: ingress
+  labels:
+    app: nginx-ingress-controller
+data: {}
+
+---
+# Custom Headers ConfigMap for security headers
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: custom-headers
+  namespace: ingress
+  labels:
+    app: nginx-ingress-controller
+data:
+  # Security Headers
+  X-Frame-Options: "SAMEORIGIN"
+  X-Content-Type-Options: "nosniff"
+  X-XSS-Protection: "1; mode=block"
+  Referrer-Policy: "strict-origin-when-cross-origin"
+  Permissions-Policy: "geolocation=(), microphone=(), camera=()"
+  
+  # HSTS (HTTP Strict Transport Security)
+  Strict-Transport-Security: "max-age=31536000; includeSubDomains; preload"
+  
+  # CSP (Content Security Policy)
+  Content-Security-Policy: "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https:; frame-ancestors 'none';"

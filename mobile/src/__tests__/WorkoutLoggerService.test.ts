@@ -207,6 +207,116 @@ describe('WorkoutLoggerService', () => {
     });
   });
 
+  describe('calculateWorkoutXP', () => {
+    it('should calculate XP with base formula', () => {
+      // Volume: 1000, Multiplier: 1.0, Streak: 0
+      // Expected: max(1000/100, 10) * 1.0 * (1 + 0) = 10 * 1.0 * 1 = 10
+      const xp = WorkoutLoggerService.calculateWorkoutXP(1000, 1.0, 0);
+      expect(xp).toBe(10);
+    });
+
+    it('should apply difficulty multiplier for compound exercises', () => {
+      // Volume: 5000, Multiplier: 1.2 (compound), Streak: 0
+      // Expected: max(5000/100, 10) * 1.2 * (1 + 0) = 50 * 1.2 * 1 = 60
+      const xp = WorkoutLoggerService.calculateWorkoutXP(5000, 1.2, 0);
+      expect(xp).toBe(60);
+    });
+
+    it('should apply difficulty multiplier for isolation exercises', () => {
+      // Volume: 5000, Multiplier: 1.0 (isolation), Streak: 0
+      // Expected: max(5000/100, 10) * 1.0 * (1 + 0) = 50 * 1.0 * 1 = 50
+      const xp = WorkoutLoggerService.calculateWorkoutXP(5000, 1.0, 0);
+      expect(xp).toBe(50);
+    });
+
+    it('should apply difficulty multiplier for cardio', () => {
+      // Volume: 5000, Multiplier: 0.8 (cardio), Streak: 0
+      // Expected: max(5000/100, 10) * 0.8 * (1 + 0) = 50 * 0.8 * 1 = 40
+      const xp = WorkoutLoggerService.calculateWorkoutXP(5000, 0.8, 0);
+      expect(xp).toBe(40);
+    });
+
+    it('should apply streak bonus', () => {
+      // Volume: 5000, Multiplier: 1.0, Streak: 10
+      // Expected: max(5000/100, 10) * 1.0 * (1 + min(10*0.05, 0.50)) = 50 * 1.0 * 1.5 = 75
+      const xp = WorkoutLoggerService.calculateWorkoutXP(5000, 1.0, 10);
+      expect(xp).toBe(75);
+    });
+
+    it('should cap streak bonus at 50%', () => {
+      // Volume: 5000, Multiplier: 1.0, Streak: 100
+      // Expected: max(5000/100, 10) * 1.0 * (1 + min(100*0.05, 0.50)) = 50 * 1.0 * 1.5 = 75
+      const xp = WorkoutLoggerService.calculateWorkoutXP(5000, 1.0, 100);
+      expect(xp).toBe(75);
+    });
+
+    it('should enforce minimum XP of 10', () => {
+      // Volume: 0, Multiplier: 0.8, Streak: 0
+      // Expected: max(0/100, 10) * 0.8 * (1 + 0) = 10 * 0.8 * 1 = 8, but min is 10
+      const xp = WorkoutLoggerService.calculateWorkoutXP(0, 0.8, 0);
+      expect(xp).toBe(10);
+    });
+
+    it('should combine all multipliers correctly', () => {
+      // Volume: 10000, Multiplier: 1.2 (compound), Streak: 20
+      // Expected: max(10000/100, 10) * 1.2 * (1 + min(20*0.05, 0.50)) = 100 * 1.2 * 1.5 = 180
+      const xp = WorkoutLoggerService.calculateWorkoutXP(10000, 1.2, 20);
+      expect(xp).toBe(180);
+    });
+  });
+
+  describe('calculateDifficultyMultiplier', () => {
+    it('should return 1.0 for empty exercises', () => {
+      const multiplier = WorkoutLoggerService.calculateDifficultyMultiplier([]);
+      expect(multiplier).toBe(1.0);
+    });
+
+    it('should return 1.2 for single compound exercise', () => {
+      let workout = WorkoutLoggerService.startWorkout(userId);
+      workout = WorkoutLoggerService.addExercise(workout, 'ex-1', 'Bench Press', 'CHEST', 'COMPOUND');
+
+      const multiplier = WorkoutLoggerService.calculateDifficultyMultiplier(workout.exercises);
+      expect(multiplier).toBe(1.2);
+    });
+
+    it('should return 1.0 for single isolation exercise', () => {
+      let workout = WorkoutLoggerService.startWorkout(userId);
+      workout = WorkoutLoggerService.addExercise(workout, 'ex-1', 'Bicep Curl', 'ARMS', 'ISOLATION');
+
+      const multiplier = WorkoutLoggerService.calculateDifficultyMultiplier(workout.exercises);
+      expect(multiplier).toBe(1.0);
+    });
+
+    it('should return 0.8 for single cardio exercise', () => {
+      let workout = WorkoutLoggerService.startWorkout(userId);
+      workout = WorkoutLoggerService.addExercise(workout, 'ex-1', 'Running', 'CARDIO', 'CARDIO');
+
+      const multiplier = WorkoutLoggerService.calculateDifficultyMultiplier(workout.exercises);
+      expect(multiplier).toBe(0.8);
+    });
+
+    it('should average multipliers for mixed exercises', () => {
+      let workout = WorkoutLoggerService.startWorkout(userId);
+      workout = WorkoutLoggerService.addExercise(workout, 'ex-1', 'Bench Press', 'CHEST', 'COMPOUND');
+      workout = WorkoutLoggerService.addExercise(workout, 'ex-2', 'Bicep Curl', 'ARMS', 'ISOLATION');
+
+      // (1.2 + 1.0) / 2 = 1.1
+      const multiplier = WorkoutLoggerService.calculateDifficultyMultiplier(workout.exercises);
+      expect(multiplier).toBe(1.1);
+    });
+
+    it('should average multipliers for three different types', () => {
+      let workout = WorkoutLoggerService.startWorkout(userId);
+      workout = WorkoutLoggerService.addExercise(workout, 'ex-1', 'Bench Press', 'CHEST', 'COMPOUND');
+      workout = WorkoutLoggerService.addExercise(workout, 'ex-2', 'Bicep Curl', 'ARMS', 'ISOLATION');
+      workout = WorkoutLoggerService.addExercise(workout, 'ex-3', 'Running', 'CARDIO', 'CARDIO');
+
+      // (1.2 + 1.0 + 0.8) / 3 = 1.0
+      const multiplier = WorkoutLoggerService.calculateDifficultyMultiplier(workout.exercises);
+      expect(multiplier).toBe(1.0);
+    });
+  });
+
   // TODO: These tests call methods that don't exist in WorkoutLoggerService
   // describe('removeExercise', () => {
   //   it('should remove exercise from workout', () => {

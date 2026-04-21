@@ -1,0 +1,136 @@
+---
+# NetworkPolicy to restrict RabbitMQ traffic
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: rabbitmq
+  namespace: fitquest
+  labels:
+    app: rabbitmq
+    component: message-queue
+spec:
+  podSelector:
+    matchLabels:
+      app: rabbitmq
+      component: message-queue
+  policyTypes:
+    - Ingress
+    - Egress
+  
+  # Ingress rules
+  ingress:
+    # Allow AMQP traffic from microservices in fitquest namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: fitquest
+          podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 5672
+    
+    # Allow management UI traffic from fitquest namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: fitquest
+          podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 15672
+    
+    # Allow metrics scraping from monitoring namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+          podSelector:
+            matchLabels:
+              app: prometheus
+      ports:
+        - protocol: TCP
+          port: 15692
+    
+    # Allow clustering between RabbitMQ nodes
+    - from:
+        - podSelector:
+            matchLabels:
+              app: rabbitmq
+              component: message-queue
+      ports:
+        - protocol: TCP
+          port: 25672
+        - protocol: TCP
+          port: 5672
+  
+  # Egress rules
+  egress:
+    # Allow DNS queries
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+    
+    # Allow traffic to other RabbitMQ nodes
+    - to:
+        - podSelector:
+            matchLabels:
+              app: rabbitmq
+              component: message-queue
+      ports:
+        - protocol: TCP
+          port: 5672
+        - protocol: TCP
+          port: 25672
+    
+    # Allow traffic to Kubernetes API for peer discovery
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: default
+          podSelector:
+            matchLabels:
+              component: kube-apiserver
+      ports:
+        - protocol: TCP
+          port: 443
+    
+    # Allow traffic to external services (if needed)
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 80
+
+---
+# NetworkPolicy to allow microservices to connect to RabbitMQ
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-rabbitmq-clients
+  namespace: fitquest
+  labels:
+    app: rabbitmq
+    component: message-queue
+spec:
+  podSelector:
+    matchLabels:
+      app: rabbitmq
+      component: message-queue
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow all pods in fitquest namespace to connect
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 5672
+        - protocol: TCP
+          port: 15672

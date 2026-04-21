@@ -1,0 +1,190 @@
+---
+# RabbitMQ StatefulSet
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rabbitmq
+  namespace: fitquest
+  labels:
+    app: rabbitmq
+    component: message-queue
+spec:
+  serviceName: rabbitmq
+  replicas: 3
+  selector:
+    matchLabels:
+      app: rabbitmq
+      component: message-queue
+  template:
+    metadata:
+      labels:
+        app: rabbitmq
+        component: message-queue
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "15692"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: rabbitmq
+      terminationGracePeriodSeconds: 30
+      
+      # Init container to wait for cluster readiness
+      initContainers:
+        - name: wait-for-cluster
+          image: rabbitmq:3.12-management-alpine
+          command:
+            - sh
+            - -c
+            - |
+              until rabbitmq-diagnostics -q ping; do
+                echo "Waiting for RabbitMQ to start..."
+                sleep 2
+              done
+              echo "RabbitMQ is ready"
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "100m"
+            limits:
+              memory: "128Mi"
+              cpu: "200m"
+      
+      containers:
+        - name: rabbitmq
+          image: rabbitmq:3.12-management-alpine
+          imagePullPolicy: IfNotPresent
+          
+          # Environment variables
+          env:
+            - name: RABBITMQ_DEFAULT_USER
+              value: "guest"
+            - name: RABBITMQ_DEFAULT_PASS
+              value: "guest"
+            - name: RABBITMQ_ERLANG_COOKIE
+              value: "fitquest-secret-cookie"
+            - name: RABBITMQ_NODENAME
+              value: "rabbit@$(HOSTNAME).rabbitmq.fitquest.svc.cluster.local"
+            - name: RABBITMQ_USE_LONGNAME
+              value: "true"
+            - name: RABBITMQ_CONFIG_FILE
+              value: "/etc/rabbitmq/rabbitmq.conf"
+            - name: RABBITMQ_PLUGINS
+              value: "rabbitmq_management rabbitmq_prometheus rabbitmq_peer_discovery_k8s"
+          
+          # Ports
+          ports:
+            - name: amqp
+              containerPort: 5672
+              protocol: TCP
+            - name: management
+              containerPort: 15672
+              protocol: TCP
+            - name: metrics
+              containerPort: 15692
+              protocol: TCP
+            - name: clustering
+              containerPort: 25672
+              protocol: TCP
+          
+          # Volume mounts
+          volumeMounts:
+            - name: rabbitmq-data
+              mountPath: /var/lib/rabbitmq
+            - name: rabbitmq-config
+              mountPath: /etc/rabbitmq
+              readOnly: true
+            - name: rabbitmq-init-scripts
+              mountPath: /opt/init-scripts
+              readOnly: true
+          
+          # Liveness probe
+          livenessProbe:
+            exec:
+              command:
+                - rabbitmq-diagnostics
+                - -q
+                - ping
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          
+          # Readiness probe
+          readinessProbe:
+            exec:
+              command:
+                - rabbitmq-diagnostics
+                - -q
+                - check_running
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 3
+          
+          # Resource requests and limits
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          
+          # Security context
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            runAsNonRoot: false
+            capabilities:
+              drop:
+                - ALL
+      
+      # Pod security context
+      securityContext:
+        fsGroup: 999
+        runAsUser: 999
+        runAsNonRoot: false
+      
+      # Affinity rules for pod distribution
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - rabbitmq
+                topologyKey: kubernetes.io/hostname
+      
+      # Volumes
+      volumes:
+        - name: rabbitmq-config
+          configMap:
+            name: rabbitmq-config
+            items:
+              - key: rabbitmq.conf
+                path: rabbitmq.conf
+              - key: definitions.json
+                path: definitions.json
+        - name: rabbitmq-init-scripts
+          configMap:
+            name: rabbitmq-init-scripts
+            defaultMode: 0755
+  
+  # Persistent volume claim template
+  volumeClaimTemplates:
+    - metadata:
+        name: rabbitmq-data
+        labels:
+          app: rabbitmq
+          component: message-queue
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: standard
+        resources:
+          requests:
+            storage: 10Gi

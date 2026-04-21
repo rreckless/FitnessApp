@@ -1,0 +1,151 @@
+---
+# PrometheusRule for RabbitMQ monitoring and alerting
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: rabbitmq-alerts
+  namespace: monitoring
+  labels:
+    app: rabbitmq
+    component: message-queue
+    prometheus: kube-prometheus
+spec:
+  groups:
+    - name: rabbitmq.rules
+      interval: 30s
+      rules:
+        # Alert: RabbitMQ node down
+        - alert: RabbitMQNodeDown
+          expr: |
+            rabbitmq_up{job="rabbitmq"} == 0
+          for: 2m
+          labels:
+            severity: critical
+            component: rabbitmq
+          annotations:
+            summary: "RabbitMQ node {{ $labels.instance }} is down"
+            description: "RabbitMQ node {{ $labels.instance }} has been down for more than 2 minutes"
+        
+        # Alert: RabbitMQ memory usage high
+        - alert: RabbitMQMemoryUsageHigh
+          expr: |
+            (rabbitmq_resident_memory_limit_bytes - rabbitmq_resident_memory_bytes) / rabbitmq_resident_memory_limit_bytes < 0.2
+          for: 5m
+          labels:
+            severity: warning
+            component: rabbitmq
+          annotations:
+            summary: "RabbitMQ memory usage is high on {{ $labels.instance }}"
+            description: "RabbitMQ memory usage is above 80% on {{ $labels.instance }}"
+        
+        # Alert: RabbitMQ disk space low
+        - alert: RabbitMQDiskSpaceLow
+          expr: |
+            rabbitmq_disk_space_available_bytes / rabbitmq_disk_space_limit_bytes < 0.1
+          for: 5m
+          labels:
+            severity: warning
+            component: rabbitmq
+          annotations:
+            summary: "RabbitMQ disk space is low on {{ $labels.instance }}"
+            description: "RabbitMQ disk space is below 10% on {{ $labels.instance }}"
+        
+        # Alert: RabbitMQ queue depth high
+        - alert: RabbitMQQueueDepthHigh
+          expr: |
+            rabbitmq_queue_messages_ready > 10000
+          for: 5m
+          labels:
+            severity: warning
+            component: rabbitmq
+          annotations:
+            summary: "RabbitMQ queue {{ $labels.queue }} has high depth"
+            description: "Queue {{ $labels.queue }} has {{ $value }} messages ready"
+        
+        # Alert: RabbitMQ connection count high
+        - alert: RabbitMQConnectionCountHigh
+          expr: |
+            rabbitmq_connections > 1000
+          for: 5m
+          labels:
+            severity: warning
+            component: rabbitmq
+          annotations:
+            summary: "RabbitMQ connection count is high"
+            description: "RabbitMQ has {{ $value }} active connections"
+        
+        # Alert: RabbitMQ channel count high
+        - alert: RabbitMQChannelCountHigh
+          expr: |
+            rabbitmq_channels > 5000
+          for: 5m
+          labels:
+            severity: warning
+            component: rabbitmq
+          annotations:
+            summary: "RabbitMQ channel count is high"
+            description: "RabbitMQ has {{ $value }} active channels"
+        
+        # Alert: RabbitMQ unacknowledged messages high
+        - alert: RabbitMQUnacknowledgedMessagesHigh
+          expr: |
+            rabbitmq_queue_messages_unacked > 1000
+          for: 5m
+          labels:
+            severity: warning
+            component: rabbitmq
+          annotations:
+            summary: "RabbitMQ queue {{ $labels.queue }} has high unacknowledged messages"
+            description: "Queue {{ $labels.queue }} has {{ $value }} unacknowledged messages"
+        
+        # Alert: RabbitMQ consumer count low
+        - alert: RabbitMQConsumerCountLow
+          expr: |
+            rabbitmq_queue_consumers == 0 and rabbitmq_queue_messages_ready > 0
+          for: 5m
+          labels:
+            severity: warning
+            component: rabbitmq
+          annotations:
+            summary: "RabbitMQ queue {{ $labels.queue }} has no consumers"
+            description: "Queue {{ $labels.queue }} has no consumers but has {{ $value }} messages"
+        
+        # Alert: RabbitMQ cluster node count mismatch
+        - alert: RabbitMQClusterNodeCountMismatch
+          expr: |
+            count(rabbitmq_up{job="rabbitmq"} == 1) != 3
+          for: 2m
+          labels:
+            severity: critical
+            component: rabbitmq
+          annotations:
+            summary: "RabbitMQ cluster node count mismatch"
+            description: "Expected 3 RabbitMQ nodes, but only {{ $value }} are up"
+
+---
+# ServiceMonitor for Prometheus to scrape RabbitMQ metrics
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: rabbitmq
+  namespace: fitquest
+  labels:
+    app: rabbitmq
+    component: message-queue
+    prometheus: kube-prometheus
+spec:
+  selector:
+    matchLabels:
+      app: rabbitmq
+      component: message-queue
+  endpoints:
+    - port: metrics
+      interval: 30s
+      path: /metrics
+      scheme: http
+      scrapeTimeout: 10s
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+        - sourceLabels: [__meta_kubernetes_pod_node_name]
+          targetLabel: node

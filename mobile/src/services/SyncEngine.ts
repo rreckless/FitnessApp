@@ -15,6 +15,15 @@ export interface SyncOperation {
   payload?: string;
 }
 
+export interface ConflictResolution {
+  entityId: string;
+  entityType: string;
+  localTimestamp: string;
+  remoteTimestamp: string;
+  winner: 'local' | 'remote';
+  reason: string;
+}
+
 export class SyncEngine {
   private static instance: SyncEngine;
   private api: AxiosInstance;
@@ -100,23 +109,37 @@ export class SyncEngine {
   }
 
   /**
-   * Sync all pending operations
+   * Sync all pending operations with conflict detection
    */
-  async syncAll(userId: string): Promise<{ synced: number; failed: number }> {
+  async syncAll(userId: string): Promise<{ synced: number; failed: number; conflicts: ConflictResolution[] }> {
     if (this.isSyncing) {
       console.log('Sync already in progress');
-      return { synced: 0, failed: 0 };
+      return { synced: 0, failed: 0, conflicts: [] };
     }
 
     this.isSyncing = true;
     let synced = 0;
     let failed = 0;
+    const conflicts: ConflictResolution[] = [];
 
     try {
       const operations = await this.getPendingOperations(userId);
 
       for (const operation of operations) {
         try {
+          // Check for conflicts before syncing
+          const conflict = await this.detectConflict(operation);
+          if (conflict) {
+            conflicts.push(conflict);
+            // Apply last-write-wins resolution
+            const shouldSync = await this.resolveConflict(conflict, operation);
+            if (!shouldSync) {
+              await this.updateOperationStatus(operation.id, 'SYNCED');
+              synced++;
+              continue;
+            }
+          }
+
           await this.syncOperation(operation);
           synced++;
         } catch (error) {
@@ -126,21 +149,150 @@ export class SyncEngine {
         }
       }
 
-      console.log(`Sync complete: ${synced} synced, ${failed} failed`);
-      return { synced, failed };
+      console.log(`Sync complete: ${synced} synced, ${failed} failed, ${conflicts.length} conflicts`);
+      return { synced, failed, conflicts };
     } finally {
       this.isSyncing = false;
     }
   }
 
   /**
-   * Sync a single operation
+   * Detect conflicts using timestamps
+   */
+  private async detectConflict(operation: SyncQueueItem): Promise<ConflictResolution | null> {
+    try {
+      // For UPDATE and DELETE operations, check if remote version is newer
+      if (operation.operation === 'UPDATE' || operation.operation === 'DELETE') {
+        const response = await this.api.get(`/sync/check-conflict`, {
+          params: {
+            entityType: operation.entityType,
+            entityId: operation.entityId,
+          },
+        });
+
+        if (response.data.hasConflict) {
+          const localTimestamp = operation.updatedAt.toISOString();
+          const remoteTimestamp = response.data.remoteTimestamp;
+
+          // Last-write-wins: compare timestamps
+          const winner = new Date(localTimestamp) > new Date(remoteTimestamp) ? 'local' : 'remote';
+
+          return {
+            entityId: operation.entityId,
+            entityType: operation.entityType,
+            localTimestamp,
+            remoteTimestamp,
+            winner,
+            reason: `Conflict detected: local ${localTimestamp} vs remote ${remoteTimestamp}`,
+          };
+        }
+      }
+
+      return null;
+    } catch (error) {
+      console.error('Failed to detect conflict:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Resolve conflict using last-write-wins strategy
+   */
+  private async resolveConflict(conflict: ConflictResolution, operation: SyncQueueItem): Promise<boolean> {
+    if (conflict.winner === 'local') {
+      // Local version is newer, proceed with sync
+      console.log(`Conflict resolved: local version wins for ${conflict.entityId}`);
+      return true;
+    } else {
+      // Remote version is newer, skip local sync and fetch remote
+      console.log(`Conflict resolved: remote version wins for ${conflict.entityId}`);
+      try {
+        const response = await this.api.get(`/sync/pull-entity`, {
+          params: {
+            entityType: operation.entityType,
+            entityId: operation.entityId,
+          },
+        });
+
+        // Update local database with remote version
+        await this.updateLocalWithRemote(operation, response.data);
+        return false; // Don't sync local version
+      } catch (error) {
+        console.error('Failed to fetch remote version:', error);
+        return true; // Fallback to syncing local version
+      }
+    }
+  }
+
+  /**
+   * Update local database with remote version
+   */
+  private async updateLocalWithRemote(operation: SyncQueueItem, remoteData: any): Promise<void> {
+    try {
+      const now = new Date().toISOString();
+
+      switch (operation.entityType) {
+        case 'WORKOUT':
+          await this.dbManager.executeSql(
+            `UPDATE workouts SET totalVolume = ?, totalXP = ?, notes = ?, updatedAt = ? WHERE id = ?`,
+            [remoteData.totalVolume, remoteData.totalXP, remoteData.notes, now, operation.entityId]
+          );
+          break;
+        case 'WEIGHT':
+          await this.dbManager.executeSql(
+            `UPDATE body_weight SET weight = ?, notes = ?, updatedAt = ? WHERE id = ?`,
+            [remoteData.weight, remoteData.notes, now, operation.entityId]
+          );
+          break;
+        case 'MEASUREMENT':
+          await this.dbManager.executeSql(
+            `UPDATE body_measurements SET chest = ?, waist = ?, hips = ?, arms = ?, thighs = ?, notes = ?, updatedAt = ? WHERE id = ?`,
+            [remoteData.chest, remoteData.waist, remoteData.hips, remoteData.arms, remoteData.thighs, remoteData.notes, now, operation.entityId]
+          );
+          break;
+        case 'PHOTO':
+          await this.dbManager.executeSql(
+            `UPDATE progress_photos SET imageUrl = ?, thumbnailUrl = ?, notes = ?, updatedAt = ? WHERE id = ?`,
+            [remoteData.imageUrl, remoteData.thumbnailUrl, remoteData.notes, now, operation.entityId]
+          );
+          break;
+      }
+
+      console.log(`Updated local ${operation.entityType} ${operation.entityId} with remote version`);
+    } catch (error) {
+      console.error('Failed to update local with remote:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Sync a single operation with exponential backoff retry
    */
   private async syncOperation(operation: SyncQueueItem): Promise<void> {
     try {
       // Update status to SYNCING
       await this.updateOperationStatus(operation.id, 'SYNCING');
 
+      // Perform the sync with exponential backoff
+      await this.syncWithRetry(operation);
+
+      // Mark as synced
+      await this.updateOperationStatus(operation.id, 'SYNCED');
+    } catch (error) {
+      // Mark as failed
+      await this.updateOperationStatus(operation.id, 'FAILED');
+      throw error;
+    }
+  }
+
+  /**
+   * Sync with exponential backoff retry logic
+   */
+  private async syncWithRetry(operation: SyncQueueItem, attempt: number = 0): Promise<void> {
+    const maxRetries = 4; // 1s, 2s, 4s, 8s
+    const baseDelay = 1000; // 1 second
+
+    try {
       // Perform the sync based on operation type
       switch (operation.operation) {
         case 'CREATE':
@@ -153,13 +305,16 @@ export class SyncEngine {
           await this.syncDelete(operation);
           break;
       }
-
-      // Mark as synced
-      await this.updateOperationStatus(operation.id, 'SYNCED');
     } catch (error) {
-      // Mark as failed
-      await this.updateOperationStatus(operation.id, 'FAILED');
-      throw error;
+      if (attempt < maxRetries) {
+        const delay = baseDelay * Math.pow(2, attempt); // Exponential backoff
+        console.log(`Sync failed, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`);
+        
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        return this.syncWithRetry(operation, attempt + 1);
+      } else {
+        throw error;
+      }
     }
   }
 

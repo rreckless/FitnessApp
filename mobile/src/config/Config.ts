@@ -4,9 +4,9 @@ const Config = {
   // API Configuration
   apiBaseURL: __DEV__
     ? Platform.OS === 'android'
-      ? 'http://10.0.2.2:3000/api' // Android emulator
-      : 'http://localhost:3000/api' // iOS simulator
-    : 'https://api.fitquest.com/api', // Production
+      ? 'http://10.0.2.2:80/api' // Android emulator - Kubernetes API Gateway
+      : 'http://localhost:80/api' // iOS simulator - Kubernetes API Gateway
+    : 'https://api.fitquest.com/api', // Production - Kubernetes API Gateway
 
   // App Configuration
   appName: 'FitQuest',

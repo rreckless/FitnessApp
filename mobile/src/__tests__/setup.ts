@@ -134,18 +134,10 @@ const createMockExerciseRow = (exercise: any) => ({
 
 jest.mock('@database/DatabaseManager', () => mockDatabaseManager);
 
-// Mock SyncEngine
-const mockSyncEngine = {
-  queueOperation: jest.fn(async () => Promise.resolve()),
-};
-
-jest.mock('../services/SyncEngine', () => ({
-  SyncEngine: mockSyncEngine,
-}));
-
 // Mock Config
 jest.mock('@config/Config', () => ({
   apiBaseURL: 'http://localhost:3000/api',
+  appVersion: '1.0.0',
   environment: 'test',
   logLevel: 'error',
 }));
@@ -177,6 +169,9 @@ export const mockAxiosPost = mockAxios.post;
 export const mockAxiosPut = mockAxios.put;
 export const mockAxiosDelete = mockAxios.delete;
 
+// Mock setTimeout and setInterval for tests
+jest.useFakeTimers();
+
 // Suppress console errors in tests
 const originalError = console.error;
 beforeAll(() => {
@@ -195,6 +190,7 @@ beforeAll(() => {
 
 afterAll(() => {
   console.error = originalError;
+  jest.useRealTimers();
 });
 
 // Global test utilities

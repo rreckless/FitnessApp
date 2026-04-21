@@ -12,14 +12,20 @@ describe('SyncEngine', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    jest.useFakeTimers();
 
     // Reset axios instance methods
     mockedAxios.post = jest.fn().mockResolvedValue({ data: {} });
     mockedAxios.put = jest.fn().mockResolvedValue({ data: {} });
     mockedAxios.delete = jest.fn().mockResolvedValue({ data: {} });
+    mockedAxios.get = jest.fn().mockResolvedValue({ data: { hasConflict: false } });
     
     mockedAuthService.getAccessToken = jest.fn().mockResolvedValue('access-token-123');
     mockedDbManager.executeSql = jest.fn().mockResolvedValue({ rows: { length: 0 } });
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
   });
 
   describe('queueOperation', () => {
@@ -121,11 +127,13 @@ describe('SyncEngine', () => {
 
       mockedDbManager.executeSql = jest.fn().mockResolvedValue({ rows: mockRows });
       mockedAxios.post = jest.fn().mockResolvedValue({ data: {} });
+      mockedAxios.get = jest.fn().mockResolvedValue({ data: { hasConflict: false } });
 
       const result = await SyncEngine.syncAll(userId);
 
       expect(result.synced).toBe(2);
       expect(result.failed).toBe(0);
+      expect(result.conflicts).toEqual([]);
       expect(mockedAxios.post).toHaveBeenCalledTimes(2);
     });
 
@@ -151,6 +159,7 @@ describe('SyncEngine', () => {
       mockedAxios.post = jest.fn()
         .mockRejectedValueOnce(new Error('Network error'))
         .mockResolvedValueOnce({ data: {} });
+      mockedAxios.get = jest.fn().mockResolvedValue({ data: { hasConflict: false } });
 
       const result = await SyncEngine.syncAll(userId);
 

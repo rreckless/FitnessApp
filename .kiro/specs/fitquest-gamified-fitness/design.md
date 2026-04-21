@@ -36,19 +36,29 @@ FitQuest is a gamified fitness application that combines workout logging, progre
 └─────────────────────────────────────────────────────────────┘
                             ↕ (Sync)
 ┌─────────────────────────────────────────────────────────────┐
-│                    Cloud Backend (Node.js)                   │
+│                  Cloud Backend (.NET 10 Microservices)       │
 │  ┌──────────────────────────────────────────────────────┐   │
-│  │              API Layer (REST/GraphQL)                │   │
-│  │  Auth | Workouts | Users | Social | Leaderboards    │   │
+│  │              API Gateway (Kong/Nginx)                │   │
+│  │  Request Routing | Rate Limiting | Auth Validation   │   │
 │  └──────────────────────────────────────────────────────┘   │
 │  ┌──────────────────────────────────────────────────────┐   │
-│  │         Business Logic Layer (Node.js)               │   │
-│  │  XP Calculation | Sync Conflict Resolution           │   │
-│  │  Leaderboard Ranking | Achievement Validation        │   │
-│  └──────────────────────────────────────────────────────┘   │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │    Data Layer (PostgreSQL + Redis Cache)             │   │
-│  │  Users | Workouts | Achievements | Leaderboards      │   │
+│  │         Microservices (.NET 10 Minimal APIs)         │   │
+│  │  ┌─────────────────────────────────────────────────┐ │   │
+│  │  │ Auth Service | User Profile | Workout Service  │ │   │
+│  │  │ XP & Progression | Leaderboard | Social        │ │   │
+│  │  │ Achievement | Sync | GPS/Route | Body Tracking │ │   │
+│  │  │ Premium/Subscription                           │ │   │
+│  │  └─────────────────────────────────────────────────┘ │   │
+│  ├──────────────────────────────────────────────────────┤   │
+│  │  Message Queue (RabbitMQ/Azure Service Bus)          │   │
+│  │  Async Events: WorkoutCompleted, LevelUp, etc.       │   │
+│  ├──────────────────────────────────────────────────────┤   │
+│  │  Service Discovery & Orchestration (Kubernetes)      │   │
+│  │  Service Registration | Load Balancing | Health      │   │
+│  ├──────────────────────────────────────────────────────┤   │
+│  │  Data Layer (PostgreSQL + Redis Cache)               │   │
+│  │  Shared: Users, Exercises, Achievements              │   │
+│  │  Service-Specific: Workouts, Leaderboards, etc.      │   │
 │  └──────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────┘
                             ↕
@@ -71,21 +81,306 @@ FitQuest is a gamified fitness application that combines workout logging, progre
 - Storage: AsyncStorage (key-value), react-native-keychain (secure storage)
 - Testing: Jest with comprehensive mocking
 
-**Backend**
-- Runtime: Node.js 18+
-- Framework: Express.js or Fastify
-- Database: PostgreSQL 14+
+**Backend - Microservices**
+- Runtime: .NET 10
+- Framework: ASP.NET Core Minimal APIs
+- Language: C#
+- Database: PostgreSQL 14+ (shared and service-specific databases)
 - Cache: Redis 7+
 - Authentication: JWT with refresh tokens
 - File Storage: AWS S3 or similar
-- Message Queue: Bull (Redis-backed) for async tasks
+- Message Queue: RabbitMQ or Azure Service Bus for async communication
+- Service Discovery: Kubernetes or Consul
+- API Gateway: Kong or Nginx
+- Inter-Service Communication: gRPC (internal), REST APIs (external)
 
 **Infrastructure**
-- Hosting: AWS (EC2, RDS, ElastiCache, S3)
+- Containerization: Docker
+- Orchestration: Kubernetes (K8s)
+- Hosting: AWS EKS, Azure AKS, or on-premises K8s cluster
 - CDN: CloudFront for static assets
-- Monitoring: DataDog or New Relic
-- Logging: ELK Stack or CloudWatch
-- CI/CD: GitHub Actions
+- Monitoring: Prometheus + Grafana, DataDog, or New Relic
+- Logging: ELK Stack, Loki, or CloudWatch
+- Distributed Tracing: Jaeger or Zipkin
+- CI/CD: GitHub Actions with Docker image builds
+
+## Microservices Architecture
+
+### Service Decomposition
+
+The monolithic backend has been decomposed into 11 independent microservices, each with a specific responsibility and its own database where appropriate:
+
+#### 1. Authentication Service (.NET 10)
+**Responsibility**: User authentication, JWT token management, session handling
+**Database**: PostgreSQL (shared users table)
+**API Endpoints**:
+- `POST /auth/register` - Create new account
+- `POST /auth/login` - Authenticate user
+- `POST /auth/refresh` - Refresh JWT token
+- `POST /auth/logout` - Invalidate session
+- `POST /auth/password-reset` - Request password reset
+- `POST /auth/password-reset/confirm` - Confirm reset with token
+
+**Key Features**:
+- JWT token generation and validation
+- Password hashing with bcrypt
+- Device fingerprinting for security
+- Token blacklist management via Redis
+- MFA support (TOTP)
+
+#### 2. User Profile Service (.NET 10)
+**Responsibility**: User profile management, preferences, settings
+**Database**: PostgreSQL (users, user_preferences tables)
+**API Endpoints**:
+- `GET /users/:id` - Get user profile
+- `PUT /users/:id` - Update profile
+- `GET /users/:id/preferences` - Get user preferences
+- `PUT /users/:id/preferences` - Update preferences
+- `POST /users/:id/avatar` - Upload profile picture
+
+**Key Features**:
+- Profile CRUD operations
+- Preference management (goals, equipment, experience level)
+- Avatar upload and storage (S3)
+- Profile visibility controls
+
+#### 3. Workout Service (.NET 10)
+**Responsibility**: Workout logging, exercise tracking, workout history
+**Database**: PostgreSQL (workouts, workout_exercises tables)
+**API Endpoints**:
+- `POST /workouts` - Create workout
+- `GET /workouts` - List user workouts (paginated)
+- `GET /workouts/:id` - Get workout details
+- `PUT /workouts/:id` - Update workout
+- `DELETE /workouts/:id` - Delete workout
+- `POST /workouts/:id/complete` - Mark workout complete
+
+**Key Features**:
+- Workout CRUD operations
+- Exercise selection and set/rep/weight entry
+- Volume calculation
+- Offline sync support
+- Publishes `WorkoutCompleted` event to message queue
+
+#### 4. XP & Progression Service (.NET 10)
+**Responsibility**: XP calculation, level progression, muscle group ranks
+**Database**: PostgreSQL (user_xp, muscle_group_ranks tables)
+**API Endpoints**:
+- `GET /users/:id/xp` - Get XP and level info
+- `GET /users/:id/muscle-groups` - Get muscle group ranks
+- `GET /users/:id/progression` - Get progression history
+- `POST /xp/calculate` - Calculate XP for workout (internal)
+
+**Key Features**:
+- XP calculation based on volume and difficulty
+- Level progression with cumulative thresholds
+- Muscle group rank tracking
+- Listens to `WorkoutCompleted` events
+- Publishes `LevelUp`, `RankUp` events
+
+#### 5. Leaderboard Service (.NET 10)
+**Responsibility**: Leaderboard ranking, position calculation, real-time updates
+**Database**: PostgreSQL (leaderboards table), Redis (cached rankings)
+**API Endpoints**:
+- `GET /leaderboards/global` - Global leaderboard
+- `GET /leaderboards/friends` - Friends leaderboard
+- `GET /leaderboards/weekly` - Weekly leaderboard
+- `GET /leaderboards/:type/position/:userId` - Get user's position
+
+**Key Features**:
+- Three leaderboard types (Global, Friends, Weekly)
+- Real-time ranking updates via Redis sorted sets
+- Weekly reset logic (Monday 00:00 UTC)
+- User position and nearby competitors display
+- Listens to `LevelUp` events for real-time updates
+
+#### 6. Social Service (.NET 10)
+**Responsibility**: Friend management, friend requests, social connections
+**Database**: PostgreSQL (friendships table)
+**API Endpoints**:
+- `POST /friends/request` - Send friend request
+- `POST /friends/request/:id/accept` - Accept friend request
+- `POST /friends/request/:id/decline` - Decline friend request
+- `DELETE /friends/:id` - Remove friend
+- `GET /friends` - List friends
+- `GET /users/search` - Search for users
+
+**Key Features**:
+- Friend request management
+- Friendship CRUD operations
+- User search functionality
+- Friend list retrieval with status
+- Publishes `FriendshipCreated` events
+
+#### 7. Achievement Service (.NET 10)
+**Responsibility**: Achievement definitions, unlock conditions, achievement tracking
+**Database**: PostgreSQL (achievements, user_achievements tables)
+**API Endpoints**:
+- `GET /achievements` - List all achievements
+- `GET /users/:id/achievements` - Get user's achievements
+- `GET /users/:id/achievements/unlocked` - Get unlocked achievements
+- `POST /achievements/:id/check` - Check unlock condition (internal)
+
+**Key Features**:
+- Achievement definition and metadata
+- Rarity tier management (Common, Rare, Epic, Legendary)
+- Unlock condition evaluation
+- XP bonus distribution
+- Listens to `WorkoutCompleted`, `LevelUp`, `StreakMilestone` events
+- Publishes `AchievementUnlocked` events
+
+#### 8. Sync Service (.NET 10)
+**Responsibility**: Data synchronization, conflict resolution, offline sync queue
+**Database**: PostgreSQL (sync_queue table)
+**API Endpoints**:
+- `POST /sync/pull` - Pull changes from cloud
+- `POST /sync/push` - Push local changes to cloud
+- `GET /sync/status` - Get sync status
+
+**Key Features**:
+- Bidirectional sync with conflict detection
+- Last-write-wins conflict resolution
+- Sync queue management with retry logic
+- Exponential backoff for failed syncs
+- Coordinates with other services for data consistency
+
+#### 9. GPS/Route Service (.NET 10)
+**Responsibility**: GPS tracking, route planning, distance/pace calculations
+**Database**: PostgreSQL (gps_routes, gps_points tables)
+**API Endpoints**:
+- `POST /routes` - Create route
+- `GET /routes` - List routes
+- `GET /routes/:id` - Get route details
+- `POST /routes/:id/rate` - Rate route
+- `POST /gps/track` - Record GPS point (internal)
+- `GET /gps/workout/:id` - Get GPS data for workout
+
+**Key Features**:
+- GPS coordinate recording and storage
+- Distance and pace calculation
+- Elevation change computation
+- Route creation and navigation
+- Signal loss handling
+- Tiered data retention (raw 30 days, downsampled 1 year)
+
+#### 10. Body Tracking Service (.NET 10)
+**Responsibility**: Weight logging, measurements, progress photos
+**Database**: PostgreSQL (body_weight, body_measurements, progress_photos tables)
+**API Endpoints**:
+- `POST /body/weight` - Log weight
+- `GET /body/weight` - Get weight history
+- `POST /body/measurements` - Log measurements
+- `GET /body/measurements` - Get measurement history
+- `POST /body/photos` - Upload progress photo
+- `GET /body/photos` - Get photo gallery
+
+**Key Features**:
+- Weight and measurement logging
+- Progress photo storage and gallery
+- Photo comparison functionality
+- Trend line calculation
+- Image compression and storage (S3)
+
+#### 11. Premium/Subscription Service (.NET 10)
+**Responsibility**: Subscription management, premium feature gating, billing
+**Database**: PostgreSQL (subscriptions table)
+**API Endpoints**:
+- `POST /subscription/upgrade` - Upgrade to premium
+- `POST /subscription/cancel` - Cancel premium subscription
+- `GET /subscription/status` - Get subscription status
+- `POST /subscription/webhook` - Stripe webhook handler
+
+**Key Features**:
+- Subscription CRUD operations
+- Premium feature gating
+- Stripe integration for payments
+- Subscription status validation
+- Webhook handling for payment events
+
+### Service Communication Patterns
+
+#### Synchronous Communication (REST/gRPC)
+- **REST APIs**: External client communication (mobile app)
+- **gRPC**: Internal service-to-service communication for performance
+- **API Gateway**: Kong or Nginx routes requests to appropriate services
+- **Service Discovery**: Kubernetes DNS or Consul for service location
+
+#### Asynchronous Communication (Message Queue)
+- **Message Broker**: RabbitMQ or Azure Service Bus
+- **Event Types**:
+  - `WorkoutCompleted` - Published by Workout Service
+  - `LevelUp` - Published by XP Service
+  - `RankUp` - Published by XP Service
+  - `StreakMilestone` - Published by Streak Service (future)
+  - `AchievementUnlocked` - Published by Achievement Service
+  - `FriendshipCreated` - Published by Social Service
+  - `SubscriptionUpgraded` - Published by Premium Service
+
+- **Event Subscribers**:
+  - XP Service listens to `WorkoutCompleted`
+  - Leaderboard Service listens to `LevelUp`
+  - Achievement Service listens to `WorkoutCompleted`, `LevelUp`, `StreakMilestone`
+  - Activity Feed Service listens to all events
+  - Notification Service listens to all events
+
+#### Data Consistency Strategy
+- **Eventual Consistency**: Services eventually converge to consistent state
+- **Saga Pattern**: Multi-service transactions use choreography (event-driven)
+- **Event Sourcing**: Critical events logged for audit trail
+- **CQRS**: Read models (leaderboards) separate from write models
+
+### Database Strategy
+
+#### Shared Databases
+- **Users Database**: Shared by Auth, User Profile, and other services
+  - Tables: users, user_preferences, user_xp, muscle_group_ranks
+  - Replicated for read-heavy queries
+
+#### Service-Specific Databases
+- **Workout Service**: workouts, workout_exercises
+- **Leaderboard Service**: leaderboards (cached in Redis)
+- **Social Service**: friendships
+- **Achievement Service**: achievements, user_achievements
+- **Sync Service**: sync_queue
+- **GPS Service**: gps_routes, gps_points
+- **Body Tracking Service**: body_weight, body_measurements, progress_photos
+- **Premium Service**: subscriptions
+
+#### Caching Strategy
+- **Redis Cluster**: Distributed caching for:
+  - Leaderboard rankings (sorted sets)
+  - User profile cache (1-hour TTL)
+  - Exercise library cache (weekly update)
+  - Session tokens (blacklist)
+  - Rate limiting counters
+
+### Deployment Architecture
+
+#### Containerization
+- **Docker Images**: Each microservice has its own Dockerfile
+- **Image Registry**: Docker Hub or AWS ECR
+- **Base Image**: mcr.microsoft.com/dotnet/aspnet:10.0
+
+#### Kubernetes Orchestration
+- **Namespace**: fitquest (all services in same namespace)
+- **Deployments**: One per microservice with replicas (3+ for HA)
+- **Services**: ClusterIP for internal communication, LoadBalancer for API Gateway
+- **ConfigMaps**: Environment-specific configuration
+- **Secrets**: API keys, database credentials, JWT secrets
+- **StatefulSets**: For stateful services (if needed)
+- **Ingress**: Route external traffic to API Gateway
+
+#### Service Mesh (Optional)
+- **Istio or Linkerd**: For advanced traffic management
+- **Features**: Circuit breaking, retry logic, distributed tracing
+- **Observability**: Metrics, logs, traces across services
+
+#### Monitoring and Observability
+- **Prometheus**: Metrics collection from all services
+- **Grafana**: Visualization and dashboards
+- **Jaeger/Zipkin**: Distributed tracing
+- **ELK Stack or Loki**: Centralized logging
+- **Alerts**: PagerDuty or similar for critical issues
 
 ## Components and Interfaces
 
@@ -193,9 +488,11 @@ FitQuest is a gamified fitness application that combines workout logging, progre
 - Exercise variation suggestions
 - Performance analysis and improvement recommendations
 
-### API Endpoints
+### API Endpoints (via API Gateway)
 
-**Authentication**
+The API Gateway routes requests to appropriate microservices. All endpoints are accessed through the gateway at `https://api.fitquest.com`.
+
+**Authentication Service**
 - `POST /auth/register` - Create new account
 - `POST /auth/login` - Authenticate user
 - `POST /auth/refresh` - Refresh JWT token
@@ -203,14 +500,15 @@ FitQuest is a gamified fitness application that combines workout logging, progre
 - `POST /auth/password-reset` - Request password reset
 - `POST /auth/password-reset/confirm` - Confirm reset with token
 
-**User Profile**
+**User Profile Service**
 - `GET /users/:id` - Get user profile
 - `PUT /users/:id` - Update profile
 - `GET /users/:id/preferences` - Get user preferences
 - `PUT /users/:id/preferences` - Update preferences
 - `POST /users/:id/avatar` - Upload profile picture
+- `GET /users/search` - Search for users
 
-**Workouts**
+**Workout Service**
 - `POST /workouts` - Create workout
 - `GET /workouts` - List user workouts (paginated)
 - `GET /workouts/:id` - Get workout details
@@ -218,28 +516,28 @@ FitQuest is a gamified fitness application that combines workout logging, progre
 - `DELETE /workouts/:id` - Delete workout
 - `POST /workouts/:id/complete` - Mark workout complete
 
-**Exercises**
+**Exercise Service**
 - `GET /exercises` - List exercises (with search/filter)
 - `GET /exercises/:id` - Get exercise details
 - `GET /exercises/muscle-groups/:group` - Get exercises by muscle group
 
-**XP and Progression**
+**XP and Progression Service**
 - `GET /users/:id/xp` - Get XP and level info
 - `GET /users/:id/muscle-groups` - Get muscle group ranks
 - `GET /users/:id/progression` - Get progression history
 
-**Achievements**
+**Achievement Service**
 - `GET /achievements` - List all achievements
 - `GET /users/:id/achievements` - Get user's achievements
 - `GET /users/:id/achievements/unlocked` - Get unlocked achievements
 
-**Leaderboards**
+**Leaderboard Service**
 - `GET /leaderboards/global` - Global leaderboard
 - `GET /leaderboards/friends` - Friends leaderboard
 - `GET /leaderboards/weekly` - Weekly leaderboard
 - `GET /leaderboards/:type/position/:userId` - Get user's position
 
-**Social**
+**Social Service**
 - `POST /friends/request` - Send friend request
 - `POST /friends/request/:id/accept` - Accept friend request
 - `POST /friends/request/:id/decline` - Decline friend request
@@ -247,18 +545,18 @@ FitQuest is a gamified fitness application that combines workout logging, progre
 - `GET /friends` - List friends
 - `GET /activity-feed` - Get activity feed (paginated)
 
-**Challenges**
+**Challenge Service**
 - `POST /challenges` - Create challenge
 - `GET /challenges` - List challenges
 - `POST /challenges/:id/join` - Join challenge
 - `GET /challenges/:id/progress` - Get challenge progress
 
-**Progress Tracking**
+**Progress Tracking Service**
 - `GET /progress/prs` - Get personal records
 - `GET /progress/volume` - Get volume data
 - `GET /progress/charts/:type` - Get chart data
 
-**Body Tracking**
+**Body Tracking Service**
 - `POST /body/weight` - Log weight
 - `GET /body/weight` - Get weight history
 - `POST /body/measurements` - Log measurements
@@ -266,19 +564,28 @@ FitQuest is a gamified fitness application that combines workout logging, progre
 - `POST /body/photos` - Upload progress photo
 - `GET /body/photos` - Get photo gallery
 
-**Sync**
+**GPS/Route Service**
+- `POST /routes` - Create route
+- `GET /routes` - List routes
+- `GET /routes/:id` - Get route details
+- `POST /routes/:id/rate` - Rate route
+- `GET /gps/workout/:id` - Get GPS data for workout
+
+**Sync Service**
 - `POST /sync/pull` - Pull changes from cloud
 - `POST /sync/push` - Push local changes to cloud
 - `GET /sync/status` - Get sync status
 
-**Premium**
+**Premium/Subscription Service**
 - `POST /subscription/upgrade` - Upgrade to premium
 - `POST /subscription/cancel` - Cancel premium subscription
 - `GET /subscription/status` - Get subscription status
 
 ## Data Models
 
-### User
+### Shared Data Models (Across Services)
+
+#### User
 ```
 {
   id: UUID (primary key)
@@ -299,7 +606,7 @@ FitQuest is a gamified fitness application that combines workout logging, progre
 }
 ```
 
-### UserPreferences
+#### UserPreferences
 ```
 {
   userId: UUID (foreign key)
@@ -312,7 +619,41 @@ FitQuest is a gamified fitness application that combines workout logging, progre
 }
 ```
 
-### Workout
+#### Exercise
+```
+{
+  id: UUID (primary key)
+  name: String (unique)
+  description: String
+  primaryMuscleGroup: Enum (CHEST, BACK, SHOULDERS, ARMS, LEGS, CORE, CARDIO)
+  secondaryMuscleGroups: Array<Enum>
+  difficulty: Enum (BEGINNER, INTERMEDIATE, ADVANCED)
+  equipment: Array<Enum>
+  formTips: Array<String>
+  videoUrl: String (optional)
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+```
+
+#### Achievement
+```
+{
+  id: UUID (primary key)
+  name: String
+  description: String
+  rarity: Enum (COMMON, RARE, EPIC, LEGENDARY)
+  category: Enum (STRENGTH, CONSISTENCY, SOCIAL, EXPLORATION)
+  xpReward: Integer
+  unlockedCondition: String (JSON formula)
+  icon: String (URL)
+  createdAt: DateTime
+}
+```
+
+### Workout Service Data Models
+
+#### Workout
 ```
 {
   id: UUID (primary key)
@@ -331,7 +672,7 @@ FitQuest is a gamified fitness application that combines workout logging, progre
 }
 ```
 
-### WorkoutExercise
+#### WorkoutExercise
 ```
 {
   id: UUID (primary key)
@@ -350,24 +691,9 @@ FitQuest is a gamified fitness application that combines workout logging, progre
 }
 ```
 
-### Exercise
-```
-{
-  id: UUID (primary key)
-  name: String (unique)
-  description: String
-  primaryMuscleGroup: Enum (CHEST, BACK, SHOULDERS, ARMS, LEGS, CORE, CARDIO)
-  secondaryMuscleGroups: Array<Enum>
-  difficulty: Enum (BEGINNER, INTERMEDIATE, ADVANCED)
-  equipment: Array<Enum>
-  formTips: Array<String>
-  videoUrl: String (optional)
-  createdAt: DateTime
-  updatedAt: DateTime
-}
-```
+### XP & Progression Service Data Models
 
-### MuscleGroupRank
+#### MuscleGroupRank
 ```
 {
   id: UUID (primary key)
@@ -380,22 +706,23 @@ FitQuest is a gamified fitness application that combines workout logging, progre
 }
 ```
 
-### Achievement
+#### UserXP
 ```
 {
   id: UUID (primary key)
-  name: String
-  description: String
-  rarity: Enum (COMMON, RARE, EPIC, LEGENDARY)
-  category: Enum (STRENGTH, CONSISTENCY, SOCIAL, EXPLORATION)
-  xpReward: Integer
-  unlockedCondition: String (JSON formula)
-  icon: String (URL)
+  userId: UUID (foreign key)
+  totalXP: Integer
+  currentLevel: Integer
+  xpToNextLevel: Integer
+  lastXPUpdate: DateTime
   createdAt: DateTime
+  updatedAt: DateTime
 }
 ```
 
-### UserAchievement
+### Achievement Service Data Models
+
+#### UserAchievement
 ```
 {
   id: UUID (primary key)
@@ -406,20 +733,24 @@ FitQuest is a gamified fitness application that combines workout logging, progre
 }
 ```
 
-### PersonalRecord
+### Leaderboard Service Data Models
+
+#### Leaderboard (Cached in Redis)
 ```
 {
-  id: UUID (primary key)
-  userId: UUID (foreign key)
-  exerciseId: UUID (foreign key)
-  weight: Integer (lbs)
-  reps: Integer
-  recordedAt: DateTime
-  createdAt: DateTime
+  type: Enum (GLOBAL, FRIENDS, WEEKLY)
+  userId: UUID
+  rank: Integer
+  xp: Integer
+  level: Integer
+  name: String
+  timestamp: DateTime
 }
 ```
 
-### Friendship
+### Social Service Data Models
+
+#### Friendship
 ```
 {
   id: UUID (primary key)
@@ -431,7 +762,7 @@ FitQuest is a gamified fitness application that combines workout logging, progre
 }
 ```
 
-### ActivityFeedEntry
+#### ActivityFeedEntry
 ```
 {
   id: UUID (primary key)
@@ -443,7 +774,9 @@ FitQuest is a gamified fitness application that combines workout logging, progre
 }
 ```
 
-### Challenge
+### Challenge Service Data Models
+
+#### Challenge
 ```
 {
   id: UUID (primary key)
@@ -461,7 +794,7 @@ FitQuest is a gamified fitness application that combines workout logging, progre
 }
 ```
 
-### ChallengeProgress
+#### ChallengeProgress
 ```
 {
   id: UUID (primary key)
@@ -474,7 +807,24 @@ FitQuest is a gamified fitness application that combines workout logging, progre
 }
 ```
 
-### BodyWeight
+### Progress Tracking Service Data Models
+
+#### PersonalRecord
+```
+{
+  id: UUID (primary key)
+  userId: UUID (foreign key)
+  exerciseId: UUID (foreign key)
+  weight: Integer (lbs)
+  reps: Integer
+  recordedAt: DateTime
+  createdAt: DateTime
+}
+```
+
+### Body Tracking Service Data Models
+
+#### BodyWeight
 ```
 {
   id: UUID (primary key)
@@ -487,7 +837,7 @@ FitQuest is a gamified fitness application that combines workout logging, progre
 }
 ```
 
-### BodyMeasurement
+#### BodyMeasurement
 ```
 {
   id: UUID (primary key)
@@ -504,7 +854,7 @@ FitQuest is a gamified fitness application that combines workout logging, progre
 }
 ```
 
-### ProgressPhoto
+#### ProgressPhoto
 ```
 {
   id: UUID (primary key)
@@ -518,7 +868,9 @@ FitQuest is a gamified fitness application that combines workout logging, progre
 }
 ```
 
-### GPSRoute
+### GPS/Route Service Data Models
+
+#### GPSRoute
 ```
 {
   id: UUID (primary key)
@@ -534,7 +886,23 @@ FitQuest is a gamified fitness application that combines workout logging, progre
 }
 ```
 
-### SyncQueue
+#### GPSPoint
+```
+{
+  id: UUID (primary key)
+  workoutId: UUID (foreign key)
+  latitude: Float
+  longitude: Float
+  elevation: Float (optional)
+  accuracy: Float (meters)
+  timestamp: DateTime
+  createdAt: DateTime
+}
+```
+
+### Sync Service Data Models
+
+#### SyncQueue
 ```
 {
   id: UUID (primary key)
@@ -546,6 +914,24 @@ FitQuest is a gamified fitness application that combines workout logging, progre
   status: Enum (PENDING, SYNCING, SYNCED, FAILED)
   retryCount: Integer (default: 0)
   lastError: String (optional)
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+```
+
+### Premium/Subscription Service Data Models
+
+#### Subscription
+```
+{
+  id: UUID (primary key)
+  userId: UUID (foreign key)
+  tier: Enum (FREE, PREMIUM)
+  stripeSubscriptionId: String (optional)
+  stripeCustomerId: String (optional)
+  startDate: DateTime
+  endDate: DateTime (optional)
+  autoRenew: Boolean (default: true)
   createdAt: DateTime
   updatedAt: DateTime
 }
@@ -878,122 +1264,255 @@ function generatePersonalizedWorkout(user: User, preferences: WorkoutPreferences
 - Store subscription ID in user profile
 - Validate subscription status on app launch
 
+## Inter-Service Communication and Event Flow
+
+### Event-Driven Architecture
+
+The microservices communicate asynchronously through a message broker (RabbitMQ or Azure Service Bus) using an event-driven architecture. This enables loose coupling and scalability.
+
+#### Key Events and Subscribers
+
+**WorkoutCompleted Event**
+- Published by: Workout Service
+- Subscribers: XP Service, Achievement Service, Activity Feed Service, Notification Service
+- Payload: `{ workoutId, userId, totalVolume, exercises[], timestamp }`
+- Purpose: Trigger XP calculation, achievement checks, activity feed updates
+
+**LevelUp Event**
+- Published by: XP Service
+- Subscribers: Leaderboard Service, Achievement Service, Activity Feed Service, Notification Service
+- Payload: `{ userId, newLevel, totalXP, timestamp }`
+- Purpose: Update leaderboards, check level-based achievements, notify user
+
+**RankUp Event**
+- Published by: XP Service
+- Subscribers: Achievement Service, Activity Feed Service, Notification Service
+- Payload: `{ userId, muscleGroup, newRank, totalVolume, timestamp }`
+- Purpose: Check rank-based achievements, notify user
+
+**AchievementUnlocked Event**
+- Published by: Achievement Service
+- Subscribers: Activity Feed Service, Notification Service, XP Service (for XP bonus)
+- Payload: `{ userId, achievementId, rarity, xpReward, timestamp }`
+- Purpose: Update activity feed, notify user, award XP bonus
+
+**FriendshipCreated Event**
+- Published by: Social Service
+- Subscribers: Activity Feed Service, Notification Service
+- Payload: `{ userId1, userId2, timestamp }`
+- Purpose: Update activity feed, notify users
+
+**SubscriptionUpgraded Event**
+- Published by: Premium Service
+- Subscribers: User Profile Service, Notification Service
+- Payload: `{ userId, tier, expiresAt, timestamp }`
+- Purpose: Update user profile, enable premium features
+
+### Service-to-Service Communication
+
+#### Synchronous (REST/gRPC)
+- **Authentication**: Auth Service validates JWT tokens for all requests
+- **User Lookup**: Services call User Profile Service to get user details
+- **Exercise Lookup**: Services call Exercise Service for exercise metadata
+- **Subscription Check**: Premium Service checks subscription status for feature gating
+
+#### Asynchronous (Message Queue)
+- **Event Publishing**: Services publish events to message broker
+- **Event Subscription**: Services subscribe to relevant events
+- **Dead Letter Queue**: Failed messages sent to DLQ for manual review
+- **Retry Policy**: Exponential backoff (1s, 2s, 4s, 8s) for failed messages
+
+### Data Consistency Patterns
+
+#### Saga Pattern (Choreography)
+Used for multi-service transactions like workout completion:
+
+1. User completes workout
+2. Workout Service creates workout, publishes `WorkoutCompleted` event
+3. XP Service receives event, calculates XP, publishes `LevelUp` event (if applicable)
+4. Achievement Service receives events, checks achievements, publishes `AchievementUnlocked` event (if applicable)
+5. Leaderboard Service receives `LevelUp` event, updates rankings
+6. Activity Feed Service receives all events, creates feed entries
+7. Notification Service receives all events, sends notifications
+
+#### Eventual Consistency
+- Services eventually converge to consistent state
+- Leaderboard rankings updated within 5 minutes
+- Activity feed updated within 30 seconds
+- User profile cache invalidated after 1 hour
+
+#### Conflict Resolution
+- Last-write-wins for concurrent updates
+- Timestamps used as tiebreaker
+- Idempotent operations prevent duplicate processing
+
 ## Design Decisions from Critical Review
 
 This section documents key architectural decisions made during design review, including rationale and trade-offs.
 
-### Decision 1: Offline-First Sync Communication
-**Decision**: Show a subtle banner ("Syncing...") during sync, then automatically refresh critical screens (leaderboard, profile, activity feed) after sync completes.
+### Decision 1: Microservices vs Monolith
+**Decision**: Decompose monolithic Node.js backend into 11 independent .NET 10 microservices.
 
-**Rationale**: Users need to know sync is happening, but timestamps on every screen are noisy. Auto-refresh prevents confusion when data changes after sync.
+**Rationale**: 
+- Independent scalability: Each service scales based on its own load
+- Technology flexibility: Each service can use appropriate .NET patterns
+- Team autonomy: Teams can develop and deploy services independently
+- Fault isolation: Service failures don't cascade to entire system
 
-**Implementation**: 
-- Display sync status banner at top of app during sync
-- After sync completes, refresh leaderboard, profile, and activity feed
-- Don't show timestamps on every screen
-
-### Decision 2: Sync Failure Handling
-**Decision**: Auto-retry failed syncs 3 times with exponential backoff (1s, 2s, 4s). If all retries fail, show banner "Sync failed - will retry in 5 minutes" with manual retry button.
-
-**Rationale**: Balances resilience (automatic retries) with user control (manual option). Prevents infinite retry loops.
-
-**Implementation**:
-- Implement exponential backoff: 1s, 2s, 4s
-- After 3 failed attempts, show banner with manual retry
-- Retry automatically every 5 minutes
-- Log all sync failures for debugging
-
-### Decision 3: Changes During Sync
-**Decision**: Queue new changes and sync after current sync completes. Users can continue making changes (good UX), but they queue up.
-
-**Rationale**: Maintains order, prevents conflicts, keeps logic simple. Users aren't blocked from using the app.
+**Trade-offs**:
+- Increased operational complexity (Kubernetes, service mesh)
+- Network latency between services
+- Distributed tracing and debugging more complex
+- Data consistency challenges (eventual consistency)
 
 **Implementation**:
-- Add new changes to sync queue while sync is in progress
-- After current sync completes, immediately start syncing queued changes
-- Display queue status to user ("X changes pending sync")
+- Each service has its own Docker image and Kubernetes deployment
+- Services communicate via REST APIs (external) and gRPC (internal)
+- Asynchronous communication via message queue for events
+- API Gateway routes all external requests
 
-### Decision 4: Sync Conflict Resolution - Server Timestamps
-**Decision**: Use server-assigned timestamps for conflict resolution, not client timestamps. Store both for debugging.
+### Decision 2: API Gateway Pattern
+**Decision**: Use API Gateway (Kong or Nginx) to route requests to microservices.
 
-**Rationale**: Client clocks are unreliable (clock skew, timezone changes). Server timestamps are authoritative.
-
-**Implementation**:
-- Client sends `clientTimestamp` with each sync operation
-- Server assigns `serverTimestamp` on receipt
-- Use `serverTimestamp` for conflict resolution (last-write-wins)
-- Store both timestamps in database for debugging
-
-### Decision 5: XP Calculation - Anti-Cheat
-**Decision**: Flag suspicious workout patterns for investigation. Don't allow unrealistic workouts (e.g., 100+ reps per set, 1000+ reps per exercise).
-
-**Rationale**: Prevents obvious XP farming while allowing legitimate high-volume workouts.
+**Rationale**:
+- Single entry point for clients
+- Centralized authentication and authorization
+- Rate limiting and request throttling
+- Request/response transformation
+- Service discovery abstraction
 
 **Implementation**:
-- Validate on workout submission:
-  - Max 50 reps per set
-  - Max 100 reps per exercise per workout
-  - Weight must be realistic for exercise (1-1000 lbs)
-  - Workout duration must be reasonable (5 min - 4 hours)
-- Flag workouts that exceed thresholds
-- Log flagged workouts for manual review
-- Implement fraud detection dashboard for admins
+- Kong or Nginx deployed in front of services
+- Routes configured for each service endpoint
+- JWT validation at gateway level
+- Rate limiting: 100 requests/minute per user
+- Request logging and monitoring
 
-### Decision 6: Streak Logic - UTC Timezone
-**Decision**: Use UTC for all streak calculations (24-hour window). Display "time until streak resets" in user's local timezone.
+### Decision 3: Event-Driven Architecture
+**Decision**: Use message queue (RabbitMQ/Azure Service Bus) for asynchronous communication.
 
-**Rationale**: UTC is consistent and unambiguous. Local timezone display helps users understand when they need to work out.
+**Rationale**:
+- Loose coupling between services
+- Scalability: Services can process events at their own pace
+- Resilience: Failed messages can be retried
+- Audit trail: All events logged for debugging
 
-**Implementation**:
-- Store last workout timestamp in UTC
-- Calculate 24-hour window in UTC
-- Display reset time in user's local timezone
-- Handle timezone changes gracefully (user traveling)
-
-### Decision 7: Muscle Group Ranks - Percentile-Based
-**Decision**: Make rank thresholds percentile-based. Rank 5 = top 20% of users for that muscle group.
-
-**Rationale**: Fair progression across experience levels. Everyone can reach Rank 5 if they're in top 20%.
+**Trade-offs**:
+- Eventual consistency instead of strong consistency
+- Increased complexity in debugging
+- Message ordering challenges
 
 **Implementation**:
-- Calculate percentiles weekly based on all users' muscle group volumes
-- Rank 1: Bottom 80%, Rank 2: 60-80%, Rank 3: 40-60%, Rank 4: 20-40%, Rank 5: Top 20%
-- Update ranks weekly (batch job)
-- Display user's percentile alongside rank
+- RabbitMQ or Azure Service Bus as message broker
+- Dead letter queue for failed messages
+- Exponential backoff retry policy
+- Event schema versioning for backward compatibility
 
-### Decision 8: Leaderboard Scalability - Cached Rankings
-**Decision**: Pre-calculate and cache leaderboard rankings every 5 minutes using Redis sorted sets.
+### Decision 4: Database Strategy
+**Decision**: Shared database for users/exercises, service-specific databases for other entities.
 
-**Rationale**: O(log n) position lookups are fast. Accept 5-minute staleness for performance.
+**Rationale**:
+- Shared data (users, exercises) accessed by multiple services
+- Service-specific data (workouts, achievements) isolated for scalability
+- Reduces data duplication and consistency issues
 
-**Implementation**:
-- Batch job runs every 5 minutes
-- Recalculates all user rankings by XP
-- Stores in Redis sorted set for O(log n) lookups
-- Position queries return cached data
-- Display "last updated" timestamp (e.g., "Updated 2 min ago")
-
-### Decision 9: Activity Feed - Fan-Out-On-Write
-**Decision**: Implement fan-out-on-write. When user completes workout, write activity to each friend's feed (Redis). Limit friends to 1,000 per user.
-
-**Rationale**: Fast reads (O(1)), but writes are O(friends). 1,000 friend limit keeps write cost reasonable.
+**Trade-offs**:
+- Shared database becomes bottleneck
+- Cross-service queries require API calls
+- Data ownership boundaries less clear
 
 **Implementation**:
-- When workout completes, write activity to Redis for each friend
-- Activity feed reads from Redis (fast)
-- Enforce 1,000 friend limit (reject friend requests beyond limit)
-- Implement cleanup job to remove old activities (>30 days)
+- PostgreSQL cluster with read replicas
+- Connection pooling (PgBouncer) for shared database
+- Service-specific schemas for isolation
+- Redis for caching frequently accessed data
 
-### Decision 10: GPS Data Storage - Tiered Retention
-**Decision**: Keep raw GPS data for 30 days. After 30 days, downsample to 1 point per minute. Archive to cold storage after 1 year.
+### Decision 5: Caching Strategy
+**Decision**: Use Redis for caching leaderboards, user profiles, and exercise library.
 
-**Rationale**: Reduces storage by 90% while keeping recent data detailed.
+**Rationale**:
+- Reduces database load
+- Improves response times
+- Enables real-time leaderboard updates
 
 **Implementation**:
-- Store raw GPS points in hot storage (30 days)
-- Batch job runs daily: downsample points older than 30 days
-- Archive to cold storage (S3 Glacier) after 1 year
-- Downsampling: keep 1 point per minute (60x reduction)
+- Redis sorted sets for leaderboard rankings
+- User profile cache with 1-hour TTL
+- Exercise library cache with weekly update
+- Cache invalidation on data changes
+
+### Decision 6: Service Discovery
+**Decision**: Use Kubernetes DNS for service discovery.
+
+**Rationale**:
+- Built-in service discovery in Kubernetes
+- Automatic load balancing
+- Health checks and automatic failover
+
+**Implementation**:
+- Services registered as Kubernetes Services
+- DNS names: `{service-name}.{namespace}.svc.cluster.local`
+- ClusterIP services for internal communication
+- LoadBalancer service for API Gateway
+
+### Decision 7: Monitoring and Observability
+**Decision**: Implement comprehensive monitoring with Prometheus, Grafana, and distributed tracing.
+
+**Rationale**:
+- Visibility into system behavior
+- Early detection of issues
+- Performance optimization insights
+
+**Implementation**:
+- Prometheus scrapes metrics from all services
+- Grafana dashboards for visualization
+- Jaeger/Zipkin for distributed tracing
+- ELK Stack or Loki for centralized logging
+- PagerDuty for alerting
+
+### Decision 8: Deployment Strategy
+**Decision**: Use Kubernetes for container orchestration and deployment.
+
+**Rationale**:
+- Industry standard for microservices
+- Automatic scaling and self-healing
+- Rolling updates with zero downtime
+- Resource management and optimization
+
+**Implementation**:
+- Docker images for each service
+- Kubernetes Deployments with 3+ replicas
+- ConfigMaps for configuration
+- Secrets for sensitive data
+- Ingress for external traffic routing
+
+### Decision 9: Authentication and Authorization
+**Decision**: JWT tokens validated at API Gateway, service-to-service authentication via mTLS.
+
+**Rationale**:
+- Stateless authentication
+- Scalable across services
+- Secure service-to-service communication
+
+**Implementation**:
+- JWT tokens issued by Auth Service
+- Token validation at API Gateway
+- mTLS certificates for service-to-service communication
+- Token refresh mechanism for long-lived sessions
+
+### Decision 10: Premium Feature Gating
+**Decision**: Server-side validation of subscription status for premium features.
+
+**Rationale**:
+- Secure: Cannot be bypassed by client
+- Consistent: All services enforce same rules
+- Auditable: All access attempts logged
+
+**Implementation**:
+- Premium Service provides subscription status API
+- Services check subscription before allowing premium features
+- Return 403 Forbidden for non-premium users
+- Log all access attempts for fraud detectionling: keep 1 point per minute (60x reduction)
 
 ### Decision 11: Offline Sync Queue - Batching
 **Decision**: Batch sync operations in groups of 10-20. If batch fails, retry entire batch. If single operation fails 3 times, mark as failed and notify user.
@@ -1080,12 +1599,34 @@ Sync Process:
    a. Fetch all PENDING entries
    b. For each entry:
       - Set status to SYNCING
-      - Send to cloud API via axios
+      - Send to appropriate microservice via API Gateway
       - If success: set status to SYNCED, delete from queue
       - If failure: increment retryCount, set status to FAILED
    c. Retry failed entries up to 3 times with exponential backoff
 5. Display sync status indicator to user
 ```
+
+### Sync Service Coordination
+
+The Sync Service coordinates with other microservices to ensure data consistency:
+
+1. **Pull Phase**: Fetch latest data from cloud services
+   - User Profile Service: Get updated user data
+   - Workout Service: Get updated workouts
+   - Achievement Service: Get unlocked achievements
+   - Leaderboard Service: Get current rankings
+   - Body Tracking Service: Get weight/measurements
+
+2. **Push Phase**: Send local changes to cloud services
+   - Workout Service: Create/update/delete workouts
+   - Body Tracking Service: Create/update weight/measurements
+   - GPS Service: Upload GPS data
+   - Sync Service: Manage sync queue
+
+3. **Conflict Resolution**: Resolve conflicts using last-write-wins
+   - Compare local and cloud timestamps
+   - Use most recent version
+   - Log conflicts for debugging
 
 ### Conflict Resolution Strategy
 
@@ -1093,13 +1634,13 @@ Sync Process:
 Scenario 1: Local-only changes
 - User logs workout offline
 - Sync queue entry created
-- On connection: push to cloud
+- On connection: push to Workout Service
 - Result: workout synced successfully
 
 Scenario 2: Cloud-only changes
 - User logs in on new device
 - Cloud has newer data
-- On app launch: pull from cloud
+- On app launch: pull from cloud services
 - Result: local database updated
 
 Scenario 3: Conflicting changes
@@ -1136,14 +1677,17 @@ Scenario 4: Deletion conflicts
 - Exercise search: < 200ms
 - List scrolling: 60 FPS
 - Workout logging: < 100ms per set entry
+- API response time: < 200ms (p95)
+- Leaderboard query: < 100ms
 
 ### Optimization Strategies
 
 **Caching**
 - Exercise library cached locally (updated weekly)
 - User profile cached with 1-hour TTL
-- Leaderboard cached with 5-minute TTL
+- Leaderboard cached in Redis with 5-minute TTL
 - Achievement definitions cached (static)
+- Redis cluster for distributed caching
 
 **Lazy Loading**
 - Images loaded on-demand with thumbnail preview
@@ -1156,39 +1700,80 @@ Scenario 4: Deletion conflicts
 - Partitioning workouts by date for faster queries
 - Denormalization of user level/XP for quick access
 - Archive old data (> 2 years) to separate table
+- Read replicas for read-heavy queries
 
 **API Optimization**
-- GraphQL for flexible queries (reduce over-fetching)
 - Response compression (gzip)
 - CDN for static assets
 - Rate limiting: 100 requests/minute per user
+- Request batching for multiple queries
+- GraphQL for flexible queries (reduce over-fetching)
+
+**Microservice Optimization**
+- gRPC for internal service-to-service communication (faster than REST)
+- Connection pooling for database connections
+- Circuit breaker pattern for resilience
+- Caching at service level (Redis)
 
 ### Scalability Architecture
 
 **Horizontal Scaling**
-- Stateless API servers (can add/remove instances)
-- Load balancer (AWS ALB) distributes traffic
+- Stateless microservices (can add/remove instances)
+- Kubernetes auto-scaling based on CPU/memory
+- Load balancer (Kubernetes Service) distributes traffic
 - Database read replicas for read-heavy queries
-- Redis cluster for caching and session storage
+- Redis cluster for distributed caching
 
 **Database Scaling**
 - PostgreSQL with connection pooling (PgBouncer)
 - Read replicas for leaderboard queries
 - Sharding by userId for workout data (future)
 - Archive tables for historical data
+- Partitioning by date for time-series data
+
+**Message Queue Scaling**
+- RabbitMQ cluster for high availability
+- Multiple consumer instances for parallel processing
+- Dead letter queue for failed messages
+- Message persistence for durability
 
 **Real-Time Features**
 - WebSocket connections for live leaderboard updates
 - Redis Pub/Sub for activity feed notifications
 - Server-sent events (SSE) as fallback
+- Horizontal scaling of WebSocket servers
 
 ### Monitoring and Observability
 
-- Application Performance Monitoring (DataDog/New Relic)
-- Error tracking (Sentry)
-- Log aggregation (ELK Stack)
-- Metrics: response time, error rate, database query time
-- Alerts for: high error rate, slow queries, sync failures
+**Metrics Collection**
+- Prometheus scrapes metrics from all services
+- Custom metrics: request latency, error rate, business metrics
+- Infrastructure metrics: CPU, memory, disk, network
+- Application metrics: database query time, cache hit rate
+
+**Visualization and Alerting**
+- Grafana dashboards for visualization
+- PagerDuty for alerting on critical issues
+- Custom alerts for: high error rate, slow queries, sync failures
+- SLA monitoring: 99.9% uptime target
+
+**Distributed Tracing**
+- Jaeger or Zipkin for request tracing
+- Trace all requests across services
+- Identify bottlenecks and latency issues
+- Debug complex multi-service flows
+
+**Centralized Logging**
+- ELK Stack or Loki for log aggregation
+- Structured logging (JSON format)
+- Log levels: DEBUG, INFO, WARN, ERROR
+- Log retention: 30 days hot, 1 year cold storage
+
+**Health Checks**
+- Kubernetes liveness probes (restart if unhealthy)
+- Kubernetes readiness probes (remove from load balancer if not ready)
+- Service health endpoints for monitoring
+- Database connection health checks
 
 
 ## Error Handling
@@ -1206,6 +1791,13 @@ Scenario 4: Deletion conflicts
 - 5xx errors: Retry with exponential backoff
 - Timeout (> 30s): Treat as network error, queue for retry
 - Rate limiting (429): Backoff for specified duration
+- Circuit breaker: Stop sending requests if service is down
+
+**Service-to-Service Errors**
+- Retry with exponential backoff
+- Circuit breaker pattern to prevent cascading failures
+- Fallback to cached data if available
+- Log all errors for debugging
 
 **Sync Conflicts**
 - Detect via timestamp comparison
@@ -1221,6 +1813,7 @@ Scenario 4: Deletion conflicts
 - Validate weight is reasonable (1-1000 lbs)
 - Validate reps are reasonable (1-100)
 - Validate duration is positive
+- Flag suspicious patterns (anti-cheat)
 
 **User Input**
 - Email validation (RFC 5322 format)
@@ -1253,6 +1846,42 @@ Scenario 4: Deletion conflicts
 - Expired token: refresh token automatically
 - Refresh token expired: force re-login
 - Account deleted: clear all local data, prompt re-registration
+
+**Service Failures**
+- API Gateway returns 503 Service Unavailable
+- Client retries with exponential backoff
+- Fallback to cached data if available
+- Notify user of service degradation
+- Automatic recovery when service comes back online
+
+### Microservice-Specific Error Handling
+
+**Authentication Service**
+- Invalid credentials: return 401 Unauthorized
+- Account locked (too many failed attempts): return 429 Too Many Requests
+- Token expired: return 401 Unauthorized
+- MFA required: return 403 Forbidden with MFA challenge
+
+**Workout Service**
+- Invalid exercise: return 400 Bad Request
+- Workout not found: return 404 Not Found
+- Unauthorized access: return 403 Forbidden
+- Validation error: return 400 Bad Request with details
+
+**XP Service**
+- Invalid workout data: return 400 Bad Request
+- Calculation error: return 500 Internal Server Error
+- Database error: return 500 Internal Server Error
+
+**Leaderboard Service**
+- Leaderboard not found: return 404 Not Found
+- User not on leaderboard: return 404 Not Found
+- Cache miss: recalculate and return
+
+**Sync Service**
+- Conflict detected: resolve and return resolved data
+- Sync queue full: return 429 Too Many Requests
+- Database error: return 500 Internal Server Error
 
 ## Correctness Properties
 

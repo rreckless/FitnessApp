@@ -1,0 +1,183 @@
+name: Deploy to Kubernetes
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'backend-dotnet/**'
+      - 'infrastructure/kubernetes/**'
+      - '.github/workflows/deploy-kubernetes.yml'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  REGISTRY: ghcr.io
+  KUBERNETES_VERSION: '1.28'
+
+jobs:
+  deploy-staging:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/develop' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'staging')
+    environment:
+      name: staging
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure kubectl
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBE_CONFIG_STAGING }}" | base64 -d > $HOME/.kube/config
+          chmod 600 $HOME/.kube/config
+
+      - name: Verify cluster connection
+        run: kubectl cluster-info
+
+      - name: Create namespace
+        run: |
+          kubectl create namespace fitquest --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Create image pull secret
+        run: |
+          kubectl create secret docker-registry ghcr-secret \
+            --docker-server=${{ env.REGISTRY }} \
+            --docker-username=${{ github.actor }} \
+            --docker-password=${{ secrets.GITHUB_TOKEN }} \
+            --docker-email=${{ github.actor }}@users.noreply.github.com \
+            -n fitquest \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Deploy ConfigMaps
+        run: |
+          kubectl apply -f infrastructure/kubernetes/configmaps/ -n fitquest
+
+      - name: Deploy Secrets
+        run: |
+          kubectl apply -f infrastructure/kubernetes/secrets/ -n fitquest
+
+      - name: Deploy microservices
+        run: |
+          for service in backend-dotnet/*/; do
+            service_name=$(basename "$service")
+            if [ -f "infrastructure/kubernetes/deployments/$service_name-deployment.yaml" ]; then
+              echo "Deploying $service_name..."
+              kubectl apply -f "infrastructure/kubernetes/deployments/$service_name-deployment.yaml" -n fitquest
+            fi
+          done
+
+      - name: Wait for deployments to be ready
+        run: |
+          kubectl rollout status deployment -n fitquest --timeout=5m
+
+      - name: Verify services
+        run: |
+          kubectl get services -n fitquest
+          kubectl get pods -n fitquest
+
+      - name: Run smoke tests
+        run: |
+          echo "Running smoke tests against staging environment..."
+          # Add smoke test commands here
+
+  deploy-production:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production'
+    environment:
+      name: production
+      auto_merge: false
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Request approval
+        run: |
+          echo "Production deployment requires manual approval"
+          echo "This workflow will pause and wait for approval"
+
+      - name: Configure kubectl
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBE_CONFIG_PRODUCTION }}" | base64 -d > $HOME/.kube/config
+          chmod 600 $HOME/.kube/config
+
+      - name: Verify cluster connection
+        run: kubectl cluster-info
+
+      - name: Create namespace
+        run: |
+          kubectl create namespace fitquest --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Create image pull secret
+        run: |
+          kubectl create secret docker-registry ghcr-secret \
+            --docker-server=${{ env.REGISTRY }} \
+            --docker-username=${{ github.actor }} \
+            --docker-password=${{ secrets.GITHUB_TOKEN }} \
+            --docker-email=${{ github.actor }}@users.noreply.github.com \
+            -n fitquest \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Deploy ConfigMaps
+        run: |
+          kubectl apply -f infrastructure/kubernetes/configmaps/ -n fitquest
+
+      - name: Deploy Secrets
+        run: |
+          kubectl apply -f infrastructure/kubernetes/secrets/ -n fitquest
+
+      - name: Deploy microservices with canary strategy
+        run: |
+          for service in backend-dotnet/*/; do
+            service_name=$(basename "$service")
+            if [ -f "infrastructure/kubernetes/deployments/$service_name-deployment.yaml" ]; then
+              echo "Deploying $service_name with canary strategy..."
+              kubectl apply -f "infrastructure/kubernetes/deployments/$service_name-deployment.yaml" -n fitquest
+              # Wait for canary deployment to stabilize
+              kubectl rollout status deployment/$service_name -n fitquest --timeout=5m
+            fi
+          done
+
+      - name: Verify production services
+        run: |
+          kubectl get services -n fitquest
+          kubectl get pods -n fitquest
+          kubectl get ingress -n fitquest
+
+      - name: Run production smoke tests
+        run: |
+          echo "Running smoke tests against production environment..."
+          # Add production smoke test commands here
+
+      - name: Notify deployment
+        if: success()
+        run: |
+          echo "Production deployment completed successfully"
+          # Add notification to Slack, PagerDuty, etc.
+
+  rollback:
+    runs-on: ubuntu-latest
+    if: failure()
+    needs: [deploy-staging]
+    steps:
+      - name: Configure kubectl
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBE_CONFIG_STAGING }}" | base64 -d > $HOME/.kube/config
+          chmod 600 $HOME/.kube/config
+
+      - name: Rollback deployments
+        run: |
+          echo "Rolling back deployments..."
+          kubectl rollout undo deployment -n fitquest --all
+
+      - name: Verify rollback
+        run: |
+          kubectl get pods -n fitquest

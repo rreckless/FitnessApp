@@ -1,0 +1,117 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jaeger
+  namespace: monitoring
+  labels:
+    app: jaeger
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: jaeger
+  template:
+    metadata:
+      labels:
+        app: jaeger
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "14269"
+    spec:
+      securityContext:
+        fsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+
+      containers:
+        - name: jaeger
+          image: jaegertracing/all-in-one:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: jaeger-agent-zipkin-thrift
+              containerPort: 5775
+              protocol: UDP
+            - name: jaeger-agent-compact
+              containerPort: 6831
+              protocol: UDP
+            - name: jaeger-agent-binary
+              containerPort: 6832
+              protocol: UDP
+            - name: jaeger-agent-serve-configs
+              containerPort: 5778
+              protocol: TCP
+            - name: jaeger-collector
+              containerPort: 14268
+              protocol: TCP
+            - name: jaeger-collector-grpc
+              containerPort: 14250
+              protocol: TCP
+            - name: jaeger-query
+              containerPort: 16686
+              protocol: TCP
+            - name: jaeger-metrics
+              containerPort: 14269
+              protocol: TCP
+          env:
+            - name: COLLECTOR_ZIPKIN_HOST_PORT
+              value: ":9411"
+            - name: MEMORY_MAX_TRACES
+              value: "10000"
+            - name: SAMPLING_STRATEGIES_FILE
+              value: /etc/jaeger/sampling.json
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 2Gi
+          livenessProbe:
+            httpGet:
+              path: /
+              port: jaeger-query
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: jaeger-query
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: config
+              mountPath: /etc/jaeger
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+
+      volumes:
+        - name: config
+          configMap:
+            name: jaeger-config
+
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - jaeger
+                topologyKey: kubernetes.io/hostname

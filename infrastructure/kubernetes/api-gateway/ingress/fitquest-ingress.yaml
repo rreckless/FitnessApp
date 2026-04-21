@@ -1,0 +1,291 @@
+---
+# Main Ingress Resource for FitQuest API Gateway
+# Routes all external requests to appropriate microservices
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: fitquest-api-gateway
+  namespace: ingress
+  labels:
+    app: api-gateway
+  annotations:
+    # Ingress class
+    kubernetes.io/ingress.class: nginx
+    
+    # TLS redirect
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/ssl-protocols: "TLSv1.2 TLSv1.3"
+    
+    # Rate limiting annotations
+    nginx.ingress.kubernetes.io/limit-rps: "100"
+    nginx.ingress.kubernetes.io/limit-connections: "50"
+    nginx.ingress.kubernetes.io/limit-req-status: "429"
+    
+    # Authentication annotations
+    nginx.ingress.kubernetes.io/auth-type: "bearer"
+    nginx.ingress.kubernetes.io/auth-url: "http://auth-service.fitquest.svc.cluster.local:8080/auth/validate"
+    nginx.ingress.kubernetes.io/auth-signin: "https://api.fitquest.com/auth/login"
+    nginx.ingress.kubernetes.io/auth-response-headers: "X-User-Id,X-User-Email,X-User-Level"
+    
+    # CORS annotations
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+    nginx.ingress.kubernetes.io/cors-allow-credentials: "true"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+    nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,X-CustomHeader,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Authorization"
+    
+    # Request/Response configuration
+    nginx.ingress.kubernetes.io/client-max-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    
+    # Logging
+    nginx.ingress.kubernetes.io/enable-access-log: "true"
+    
+    # Security headers
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "X-Frame-Options: SAMEORIGIN";
+      more_set_headers "X-Content-Type-Options: nosniff";
+      more_set_headers "X-XSS-Protection: 1; mode=block";
+      more_set_headers "Referrer-Policy: strict-origin-when-cross-origin";
+      more_set_headers "Permissions-Policy: geolocation=(), microphone=(), camera=()";
+      more_set_headers "Strict-Transport-Security: max-age=31536000; includeSubDomains; preload";
+
+spec:
+  ingressClassName: nginx
+  
+  # TLS Configuration
+  tls:
+  - hosts:
+    - api.fitquest.com
+    - "*.api.fitquest.com"
+    secretName: fitquest-tls
+  
+  # Routing rules
+  rules:
+  # Main API domain
+  - host: api.fitquest.com
+    http:
+      paths:
+      # Authentication Service
+      - path: /auth
+        pathType: Prefix
+        backend:
+          service:
+            name: auth-service
+            port:
+              number: 8080
+      
+      # User Profile Service
+      - path: /users
+        pathType: Prefix
+        backend:
+          service:
+            name: user-profile-service
+            port:
+              number: 8080
+      
+      # Workout Service
+      - path: /workouts
+        pathType: Prefix
+        backend:
+          service:
+            name: workout-service
+            port:
+              number: 8080
+      
+      # Exercise Service
+      - path: /exercises
+        pathType: Prefix
+        backend:
+          service:
+            name: exercise-service
+            port:
+              number: 8080
+      
+      # XP & Progression Service
+      - path: /xp
+        pathType: Prefix
+        backend:
+          service:
+            name: xp-progression-service
+            port:
+              number: 8080
+      
+      # Leaderboard Service
+      - path: /leaderboards
+        pathType: Prefix
+        backend:
+          service:
+            name: leaderboard-service
+            port:
+              number: 8080
+      
+      # Social Service
+      - path: /friends
+        pathType: Prefix
+        backend:
+          service:
+            name: social-service
+            port:
+              number: 8080
+      
+      - path: /activity-feed
+        pathType: Prefix
+        backend:
+          service:
+            name: activity-feed-service
+            port:
+              number: 8080
+      
+      # Achievement Service
+      - path: /achievements
+        pathType: Prefix
+        backend:
+          service:
+            name: achievement-service
+            port:
+              number: 8080
+      
+      # Challenge Service
+      - path: /challenges
+        pathType: Prefix
+        backend:
+          service:
+            name: challenge-service
+            port:
+              number: 8080
+      
+      # Progress Tracking Service
+      - path: /progress
+        pathType: Prefix
+        backend:
+          service:
+            name: progress-tracking-service
+            port:
+              number: 8080
+      
+      # Body Tracking Service
+      - path: /body
+        pathType: Prefix
+        backend:
+          service:
+            name: body-tracking-service
+            port:
+              number: 8080
+      
+      # GPS/Route Service
+      - path: /routes
+        pathType: Prefix
+        backend:
+          service:
+            name: gps-route-service
+            port:
+              number: 8080
+      
+      - path: /gps
+        pathType: Prefix
+        backend:
+          service:
+            name: gps-route-service
+            port:
+              number: 8080
+      
+      # Sync Service
+      - path: /sync
+        pathType: Prefix
+        backend:
+          service:
+            name: sync-service
+            port:
+              number: 8080
+      
+      # Premium/Subscription Service
+      - path: /subscription
+        pathType: Prefix
+        backend:
+          service:
+            name: premium-service
+            port:
+              number: 8080
+      
+      # Health check endpoint
+      - path: /health
+        pathType: Exact
+        backend:
+          service:
+            name: auth-service
+            port:
+              number: 8080
+
+---
+# Ingress for unauthenticated endpoints (auth, health)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: fitquest-api-gateway-public
+  namespace: ingress
+  labels:
+    app: api-gateway
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/ssl-protocols: "TLSv1.2 TLSv1.3"
+    # No authentication required for these endpoints
+    nginx.ingress.kubernetes.io/auth-type: ""
+
+spec:
+  ingressClassName: nginx
+  
+  tls:
+  - hosts:
+    - api.fitquest.com
+    secretName: fitquest-tls
+  
+  rules:
+  - host: api.fitquest.com
+    http:
+      paths:
+      # Public authentication endpoints (no auth required)
+      - path: /auth/register
+        pathType: Exact
+        backend:
+          service:
+            name: auth-service
+            port:
+              number: 8080
+      
+      - path: /auth/login
+        pathType: Exact
+        backend:
+          service:
+            name: auth-service
+            port:
+              number: 8080
+      
+      - path: /auth/refresh
+        pathType: Exact
+        backend:
+          service:
+            name: auth-service
+            port:
+              number: 8080
+      
+      - path: /auth/password-reset
+        pathType: Prefix
+        backend:
+          service:
+            name: auth-service
+            port:
+              number: 8080
+      
+      # Health check endpoint
+      - path: /health
+        pathType: Exact
+        backend:
+          service:
+            name: auth-service
+            port:
+              number: 8080

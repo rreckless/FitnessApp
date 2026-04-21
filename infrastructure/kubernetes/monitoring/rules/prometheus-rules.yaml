@@ -1,0 +1,206 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-rules
+  namespace: monitoring
+  labels:
+    app: prometheus
+data:
+  alert-rules.yml: |
+    groups:
+      - name: fitquest-alerts
+        interval: 15s
+        rules:
+          # Service Health Alerts
+          - alert: HighErrorRate
+            expr: |
+              (sum(rate(http_requests_total{status=~"5.."}[5m])) by (service) / 
+               sum(rate(http_requests_total[5m])) by (service)) > 0.01
+            for: 5m
+            labels:
+              severity: critical
+              service: "{{ $labels.service }}"
+            annotations:
+              summary: "High error rate detected in {{ $labels.service }}"
+              description: "Error rate is {{ $value | humanizePercentage }} for {{ $labels.service }}"
+
+          - alert: ServiceUnavailable
+            expr: up{job=~"fitquest-services"} == 0
+            for: 2m
+            labels:
+              severity: critical
+              service: "{{ $labels.service }}"
+            annotations:
+              summary: "Service {{ $labels.service }} is unavailable"
+              description: "Service {{ $labels.service }} has been down for 2 minutes"
+
+          - alert: HighLatency
+            expr: |
+              histogram_quantile(0.99, rate(http_request_duration_seconds_bucket{job=~"fitquest-services"}[5m])) > 1
+            for: 5m
+            labels:
+              severity: warning
+              service: "{{ $labels.service }}"
+            annotations:
+              summary: "High latency detected in {{ $labels.service }}"
+              description: "p99 latency is {{ $value | humanizeDuration }} for {{ $labels.service }}"
+
+          # Database Alerts
+          - alert: SlowQueries
+            expr: |
+              histogram_quantile(0.95, rate(pg_stat_statements_mean_exec_time_bucket[5m])) > 1000
+            for: 5m
+            labels:
+              severity: warning
+              component: database
+            annotations:
+              summary: "Slow database queries detected"
+              description: "Database query duration is {{ $value | humanizeDuration }}"
+
+          - alert: ConnectionPoolExhaustion
+            expr: |
+              (pg_stat_activity_count / pg_settings_max_connections) > 0.9
+            for: 2m
+            labels:
+              severity: critical
+              component: database
+            annotations:
+              summary: "Database connection pool exhaustion"
+              description: "Connection pool usage is {{ $value | humanizePercentage }}"
+
+          - alert: HighLockContention
+            expr: |
+              rate(pg_stat_user_tables_idx_blks_hit[5m]) > 100
+            for: 5m
+            labels:
+              severity: warning
+              component: database
+            annotations:
+              summary: "High database lock contention"
+              description: "Lock wait time is elevated"
+
+          # Message Queue Alerts
+          - alert: HighQueueDepth
+            expr: |
+              rabbitmq_queue_messages_ready > 10000
+            for: 5m
+            labels:
+              severity: warning
+              component: messaging
+            annotations:
+              summary: "High message queue depth"
+              description: "Queue depth is {{ $value }} messages"
+
+          - alert: HighConsumerLag
+            expr: |
+              rabbitmq_queue_messages_ready > 1000
+            for: 5m
+            labels:
+              severity: warning
+              component: messaging
+            annotations:
+              summary: "High consumer lag detected"
+              description: "Consumer lag is {{ $value }} messages"
+
+          - alert: DeadLetterQueueMessages
+            expr: |
+              rabbitmq_queue_messages_ready{queue=~".*dlq.*"} > 100
+            for: 2m
+            labels:
+              severity: critical
+              component: messaging
+            annotations:
+              summary: "Messages in dead letter queue"
+              description: "Dead letter queue has {{ $value }} messages"
+
+          # Infrastructure Alerts
+          - alert: HighMemoryUsage
+            expr: |
+              (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) > 0.9
+            for: 5m
+            labels:
+              severity: warning
+              component: infrastructure
+            annotations:
+              summary: "High memory usage on node {{ $labels.node }}"
+              description: "Memory usage is {{ $value | humanizePercentage }}"
+
+          - alert: HighCPUUsage
+            expr: |
+              (1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) by (instance)) > 0.9
+            for: 5m
+            labels:
+              severity: warning
+              component: infrastructure
+            annotations:
+              summary: "High CPU usage on node {{ $labels.instance }}"
+              description: "CPU usage is {{ $value | humanizePercentage }}"
+
+          - alert: LowDiskSpace
+            expr: |
+              (node_filesystem_avail_bytes / node_filesystem_size_bytes) < 0.1
+            for: 5m
+            labels:
+              severity: critical
+              component: infrastructure
+            annotations:
+              summary: "Low disk space on node {{ $labels.node }}"
+              description: "Available disk space is {{ $value | humanizePercentage }}"
+
+          # Cache Alerts
+          - alert: LowCacheHitRate
+            expr: |
+              (redis_keyspace_hits_total / (redis_keyspace_hits_total + redis_keyspace_misses_total)) < 0.7
+            for: 5m
+            labels:
+              severity: warning
+              component: cache
+            annotations:
+              summary: "Low Redis cache hit rate"
+              description: "Cache hit rate is {{ $value | humanizePercentage }}"
+
+          - alert: HighCacheEviction
+            expr: |
+              rate(redis_evicted_keys_total[5m]) > 100
+            for: 5m
+            labels:
+              severity: warning
+              component: cache
+            annotations:
+              summary: "High Redis cache eviction rate"
+              description: "Eviction rate is {{ $value }} keys/sec"
+
+          - alert: HighMemoryUsageRedis
+            expr: |
+              (redis_memory_used_bytes / redis_memory_max_bytes) > 0.9
+            for: 5m
+            labels:
+              severity: warning
+              component: cache
+            annotations:
+              summary: "High Redis memory usage"
+              description: "Memory usage is {{ $value | humanizePercentage }}"
+
+          # Sync Alerts
+          - alert: SyncFailures
+            expr: |
+              rate(sync_failures_total[5m]) > 0.1
+            for: 5m
+            labels:
+              severity: warning
+              component: sync
+            annotations:
+              summary: "High sync failure rate"
+              description: "Sync failure rate is {{ $value }} failures/sec"
+
+          - alert: SyncQueueBacklog
+            expr: |
+              sync_queue_depth > 1000
+            for: 5m
+            labels:
+              severity: warning
+              component: sync
+            annotations:
+              summary: "Sync queue backlog detected"
+              description: "Sync queue depth is {{ $value }} items"

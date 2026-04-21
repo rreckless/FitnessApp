@@ -117,6 +117,51 @@ export class WorkoutLoggerService {
   }
 
   /**
+   * Calculate XP for a workout based on volume, difficulty, and streak
+   * Formula: max(volume / 100, 10) × difficulty multiplier × (1 + streak bonus)
+   * Streak bonus = min(currentStreak * 0.05, 0.50) - max 50% bonus
+   * Minimum XP is 10 after all multipliers
+   */
+  calculateWorkoutXP(
+    totalVolume: number,
+    difficultyMultiplier: number,
+    currentStreak: number = 0
+  ): number {
+    // Base XP: volume / 100, minimum 10
+    const baseXP = Math.max(totalVolume / 100, 10);
+
+    // Streak bonus: 5% per day, max 50%
+    const streakBonus = Math.min(currentStreak * 0.05, 0.50);
+
+    // Final XP with difficulty multiplier and streak bonus
+    const finalXP = baseXP * difficultyMultiplier * (1 + streakBonus);
+
+    // Ensure minimum XP of 10 after all multipliers
+    return Math.max(Math.round(finalXP), 10);
+  }
+
+  /**
+   * Calculate difficulty multiplier based on exercise types
+   * Compound: 1.2x, Isolation: 1.0x, Cardio: 0.8x
+   */
+  calculateDifficultyMultiplier(exercises: WorkoutExerciseEntry[]): number {
+    if (exercises.length === 0) return 1.0;
+
+    const multiplierMap: { [key: string]: number } = {
+      COMPOUND: 1.2,
+      ISOLATION: 1.0,
+      CARDIO: 0.8,
+    };
+
+    const totalMultiplier = exercises.reduce((sum, exercise) => {
+      const multiplier = multiplierMap[exercise.difficulty] || 1.0;
+      return sum + multiplier;
+    }, 0);
+
+    return totalMultiplier / exercises.length;
+  }
+
+  /**
    * Calculate duration in seconds
    */
   calculateDuration(workout: WorkoutSession): number | undefined {
@@ -127,7 +172,7 @@ export class WorkoutLoggerService {
   /**
    * Complete a workout session
    */
-  async completeWorkout(workout: WorkoutSession): Promise<WorkoutSession> {
+  async completeWorkout(workout: WorkoutSession, currentStreak: number = 0): Promise<WorkoutSession> {
     if (workout.exercises.length === 0) {
       throw new WorkoutLoggerError(
         WorkoutLoggerErrorType.NoExercisesLogged,
@@ -136,14 +181,18 @@ export class WorkoutLoggerService {
     }
 
     const now = new Date();
+    const totalVolume = this.calculateTotalVolume(workout);
+    const difficultyMultiplier = this.calculateDifficultyMultiplier(workout.exercises);
+    const totalXP = this.calculateWorkoutXP(totalVolume, difficultyMultiplier, currentStreak);
+
     const completedWorkout: WorkoutSession = {
       ...workout,
       endTime: now,
       updatedAt: now,
     };
 
-    // Save to local database
-    await this.saveWorkoutLocally(completedWorkout);
+    // Save to local database with calculated XP
+    await this.saveWorkoutLocally(completedWorkout, totalXP);
 
     // Add to sync queue
     await this.syncEngine.queueOperation(
@@ -151,7 +200,11 @@ export class WorkoutLoggerService {
       'CREATE',
       'WORKOUT',
       workout.id,
-      JSON.stringify(completedWorkout)
+      JSON.stringify({
+        ...completedWorkout,
+        totalVolume,
+        totalXP,
+      })
     );
 
     return completedWorkout;
@@ -160,7 +213,7 @@ export class WorkoutLoggerService {
   /**
    * Save workout to local database
    */
-  private async saveWorkoutLocally(workout: WorkoutSession): Promise<void> {
+  private async saveWorkoutLocally(workout: WorkoutSession, totalXP: number = 0): Promise<void> {
     try {
       const totalVolume = this.calculateTotalVolume(workout);
       const duration = this.calculateDuration(workout);
@@ -178,7 +231,7 @@ export class WorkoutLoggerService {
           workout.endTime?.toISOString() || null,
           duration || 0,
           totalVolume,
-          0, // XP will be calculated on server
+          totalXP,
           workout.notes || null,
           workout.isOfflineCreated ? 1 : 0,
           workout.createdAt.toISOString(),

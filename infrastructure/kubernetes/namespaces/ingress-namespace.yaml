@@ -1,0 +1,208 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ingress
+  labels:
+    name: ingress
+    environment: production
+    managed-by: kiro
+spec:
+  finalizers:
+    - kubernetes
+---
+# Resource Quota for ingress namespace
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: ingress-quota
+  namespace: ingress
+spec:
+  hard:
+    requests.cpu: "20"
+    requests.memory: "50Gi"
+    limits.cpu: "40"
+    limits.memory: "100Gi"
+    pods: "100"
+    services: "20"
+    persistentvolumeclaims: "10"
+---
+# Network Policy for ingress namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ingress-network-policy
+  namespace: ingress
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow external traffic on HTTP/HTTPS
+    - from:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 80
+        - protocol: TCP
+          port: 443
+    # Allow inter-pod communication within ingress namespace
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 80
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 8080
+  egress:
+    # Allow DNS
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+    # Allow traffic to fitquest namespace (microservices)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: fitquest
+      ports:
+        - protocol: TCP
+          port: 8080
+        - protocol: TCP
+          port: 8443
+    # Allow traffic to monitoring namespace
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+      ports:
+        - protocol: TCP
+          port: 9090
+    # Allow traffic to external services
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 443   # HTTPS
+---
+# RBAC Role for ingress namespace
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ingress-role
+  namespace: ingress
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "pods/status"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["services", "endpoints"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets"]
+    verbs: ["get", "list"]
+---
+# RBAC RoleBinding for ingress namespace
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ingress-rolebinding
+  namespace: ingress
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ingress-role
+subjects:
+  - kind: ServiceAccount
+    name: ingress-sa
+    namespace: ingress
+---
+# Service Account for ingress namespace
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ingress-sa
+  namespace: ingress
+  labels:
+    app: ingress
+---
+# ClusterRole for Ingress Controller
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ingress-controller-role
+rules:
+  - apiGroups: [""]
+    resources:
+      - configmaps
+      - endpoints
+      - nodes
+      - pods
+      - secrets
+      - services
+    verbs: ["get", "list", "watch"]
+  - apiGroups:
+      - ""
+    resources:
+      - nodes
+    verbs: ["get"]
+  - apiGroups:
+      - ""
+    resources:
+      - services/status
+    verbs: ["get", "patch", "update"]
+  - apiGroups:
+      - networking.k8s.io
+    resources:
+      - ingresses
+    verbs: ["get", "list", "watch"]
+  - apiGroups:
+      - networking.k8s.io
+    resources:
+      - ingresses/status
+    verbs: ["get", "patch", "update"]
+  - apiGroups:
+      - networking.k8s.io
+    resources:
+      - ingressclasses
+    verbs: ["get", "list", "watch"]
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    resourceNames:
+      - ingress-controller-leader
+    verbs: ["get", "update"]
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    verbs: ["create"]
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs: ["create", "patch"]
+---
+# ClusterRoleBinding for Ingress Controller
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ingress-controller-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: ingress-controller-role
+subjects:
+  - kind: ServiceAccount
+    name: ingress-sa
+    namespace: ingress

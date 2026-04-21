@@ -1,0 +1,55 @@
+---
+# ServiceAccount for PostgreSQL
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: postgres
+  namespace: fitquest
+  labels:
+    app: postgres
+    component: database
+
+---
+# ClusterRole for PostgreSQL
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: postgres
+  labels:
+    app: postgres
+    component: database
+rules:
+  # Read pods for replication setup
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  # Read endpoints for service discovery
+  - apiGroups: [""]
+    resources: ["endpoints"]
+    verbs: ["get", "list", "watch"]
+  # Read services for discovery
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "watch"]
+  # Read configmaps for configuration
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+
+---
+# ClusterRoleBinding for PostgreSQL
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: postgres
+  labels:
+    app: postgres
+    component: database
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: postgres
+subjects:
+  - kind: ServiceAccount
+    name: postgres
+    namespace: fitquest

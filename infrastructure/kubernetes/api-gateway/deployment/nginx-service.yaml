@@ -1,0 +1,63 @@
+---
+# LoadBalancer Service for external access to API Gateway
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-ingress-controller
+  namespace: ingress
+  labels:
+    app: nginx-ingress-controller
+  annotations:
+    # AWS-specific annotations
+    service.beta.kubernetes.io/aws-load-balancer-type: nlb
+    service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+    # Azure-specific annotations
+    service.beta.kubernetes.io/azure-load-balancer-internal: "false"
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  sessionAffinity: None
+  
+  # Ports
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
+    protocol: TCP
+  - name: https
+    port: 443
+    targetPort: 443
+    protocol: TCP
+  
+  # Selector
+  selector:
+    app: nginx-ingress-controller
+
+---
+# ClusterIP Service for internal metrics access
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-ingress-controller-metrics
+  namespace: ingress
+  labels:
+    app: nginx-ingress-controller
+spec:
+  type: ClusterIP
+  ports:
+  - name: metrics
+    port: 10254
+    targetPort: 10254
+    protocol: TCP
+  selector:
+    app: nginx-ingress-controller
+
+---
+# Ingress Class for Nginx
+apiVersion: networking.k8s.io/v1
+kind: IngressClass
+metadata:
+  name: nginx
+  namespace: ingress
+spec:
+  controller: k8s.io/ingress-nginx

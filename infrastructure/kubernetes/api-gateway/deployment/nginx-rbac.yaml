@@ -1,0 +1,274 @@
+---
+# ServiceAccount for Nginx Ingress Controller
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nginx-ingress-controller
+  namespace: ingress
+  labels:
+    app: nginx-ingress-controller
+
+---
+# ClusterRole for Nginx Ingress Controller
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: nginx-ingress-controller
+  labels:
+    app: nginx-ingress-controller
+rules:
+# Ingress resources
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  - endpoints
+  - nodes
+  - pods
+  - secrets
+  - services
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  verbs:
+  - get
+- apiGroups:
+  - ""
+  resources:
+  - services/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - ingresses
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - ingresses/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - ingressclasses
+  verbs:
+  - get
+  - list
+  - watch
+# ConfigMaps
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  resourceNames:
+  - ingress-controller-leader
+  verbs:
+  - get
+  - update
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - create
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+# Leases (for leader election)
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - get
+  - create
+  - update
+  - patch
+  - list
+  - watch
+
+---
+# ClusterRoleBinding for Nginx Ingress Controller
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: nginx-ingress-controller
+  labels:
+    app: nginx-ingress-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: nginx-ingress-controller
+subjects:
+- kind: ServiceAccount
+  name: nginx-ingress-controller
+  namespace: ingress
+
+---
+# Role for Nginx Ingress Controller (namespace-scoped)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: nginx-ingress-controller
+  namespace: ingress
+  labels:
+    app: nginx-ingress-controller
+rules:
+# ConfigMaps
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+# Secrets
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+# Services
+- apiGroups:
+  - ""
+  resources:
+  - services
+  verbs:
+  - get
+  - list
+  - watch
+# Endpoints
+- apiGroups:
+  - ""
+  resources:
+  - endpoints
+  verbs:
+  - get
+  - list
+  - watch
+# Pods
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+# Events
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+
+---
+# RoleBinding for Nginx Ingress Controller
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: nginx-ingress-controller
+  namespace: ingress
+  labels:
+    app: nginx-ingress-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: nginx-ingress-controller
+subjects:
+- kind: ServiceAccount
+  name: nginx-ingress-controller
+  namespace: ingress
+
+---
+# NetworkPolicy to restrict traffic to API Gateway
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: nginx-ingress-controller-network-policy
+  namespace: ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: nginx-ingress-controller
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Allow external traffic on HTTP and HTTPS
+  - from:
+    - namespaceSelector: {}
+    ports:
+    - protocol: TCP
+      port: 80
+    - protocol: TCP
+      port: 443
+  # Allow metrics scraping from monitoring namespace
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    ports:
+    - protocol: TCP
+      port: 10254
+  egress:
+  # Allow DNS
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: UDP
+      port: 53
+  # Allow traffic to fitquest services
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: fitquest
+    ports:
+    - protocol: TCP
+      port: 8080
+    - protocol: TCP
+      port: 8081
+    - protocol: TCP
+      port: 8082
+  # Allow traffic to monitoring namespace
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    ports:
+    - protocol: TCP
+      port: 9090
+    - protocol: TCP
+      port: 3000

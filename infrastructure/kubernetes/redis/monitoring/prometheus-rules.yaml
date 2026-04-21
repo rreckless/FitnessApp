@@ -1,0 +1,206 @@
+---
+# PrometheusRule for Redis alerts
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: redis-alerts
+  namespace: fitquest
+  labels:
+    app: redis-cluster
+    component: monitoring
+spec:
+  groups:
+    - name: redis.rules
+      interval: 30s
+      rules:
+        # Redis High Memory Usage
+        - alert: RedisHighMemoryUsage
+          expr: |
+            (redis_memory_used_bytes / redis_memory_max_bytes) > 0.8
+          for: 5m
+          labels:
+            severity: warning
+            component: redis
+          annotations:
+            summary: "Redis high memory usage (instance {{ $labels.pod }})"
+            description: "Redis memory usage is above 80% (current value: {{ $value | humanizePercentage }})"
+
+        # Redis Memory Limit Exceeded
+        - alert: RedisMemoryLimitExceeded
+          expr: |
+            (redis_memory_used_bytes / redis_memory_max_bytes) > 0.95
+          for: 2m
+          labels:
+            severity: critical
+            component: redis
+          annotations:
+            summary: "Redis memory limit exceeded (instance {{ $labels.pod }})"
+            description: "Redis memory usage is above 95% (current value: {{ $value | humanizePercentage }})"
+
+        # Redis High Eviction Rate
+        - alert: RedisHighEvictionRate
+          expr: |
+            rate(redis_evicted_keys_total[5m]) > 100
+          for: 5m
+          labels:
+            severity: warning
+            component: redis
+          annotations:
+            summary: "Redis high eviction rate (instance {{ $labels.pod }})"
+            description: "Redis is evicting keys at a high rate ({{ $value | humanize }} keys/sec)"
+
+        # Redis Replication Lag
+        - alert: RedisReplicationLag
+          expr: |
+            redis_replication_backlog_size > 1000000
+          for: 5m
+          labels:
+            severity: warning
+            component: redis
+          annotations:
+            summary: "Redis replication lag (instance {{ $labels.pod }})"
+            description: "Redis replication backlog size is large ({{ $value | humanize }} bytes)"
+
+        # Redis Slave Disconnected
+        - alert: RedisSlaveLagging
+          expr: |
+            redis_replication_role == 0 and redis_replication_connected_slaves < 1
+          for: 2m
+          labels:
+            severity: critical
+            component: redis
+          annotations:
+            summary: "Redis slave lagging (instance {{ $labels.pod }})"
+            description: "Redis slave is not connected to master"
+
+        # Redis Slow Queries
+        - alert: RedisSlowQueries
+          expr: |
+            redis_slowlog_length > 10
+          for: 5m
+          labels:
+            severity: warning
+            component: redis
+          annotations:
+            summary: "Redis slow queries detected (instance {{ $labels.pod }})"
+            description: "Redis has {{ $value }} slow queries in the log"
+
+        # Redis High Command Rate
+        - alert: RedisHighCommandRate
+          expr: |
+            rate(redis_total_commands_processed[5m]) > 10000
+          for: 5m
+          labels:
+            severity: info
+            component: redis
+          annotations:
+            summary: "Redis high command rate (instance {{ $labels.pod }})"
+            description: "Redis is processing {{ $value | humanize }} commands/sec"
+
+        # Redis Connection Pool Exhaustion
+        - alert: RedisConnectionPoolExhaustion
+          expr: |
+            redis_connected_clients > 9000
+          for: 2m
+          labels:
+            severity: warning
+            component: redis
+          annotations:
+            summary: "Redis connection pool exhaustion (instance {{ $labels.pod }})"
+            description: "Redis has {{ $value }} connected clients (limit: 10000)"
+
+        # Redis Persistence Issues
+        - alert: RedisPersistenceIssues
+          expr: |
+            redis_rdb_last_save_time < (time() - 3600)
+          for: 5m
+          labels:
+            severity: warning
+            component: redis
+          annotations:
+            summary: "Redis persistence issues (instance {{ $labels.pod }})"
+            description: "Redis last RDB save was more than 1 hour ago"
+
+        # Redis AOF Rewrite in Progress
+        - alert: RedisAOFRewriteInProgress
+          expr: |
+            redis_aof_rewrite_in_progress == 1
+          for: 10m
+          labels:
+            severity: warning
+            component: redis
+          annotations:
+            summary: "Redis AOF rewrite in progress (instance {{ $labels.pod }})"
+            description: "Redis AOF rewrite has been running for more than 10 minutes"
+
+        # Sentinel High Memory Usage
+        - alert: SentinelHighMemoryUsage
+          expr: |
+            (redis_memory_used_bytes{app="redis-sentinel"} / redis_memory_max_bytes{app="redis-sentinel"}) > 0.8
+          for: 5m
+          labels:
+            severity: warning
+            component: sentinel
+          annotations:
+            summary: "Sentinel high memory usage (instance {{ $labels.pod }})"
+            description: "Sentinel memory usage is above 80% (current value: {{ $value | humanizePercentage }})"
+
+        # Sentinel Master Down
+        - alert: SentinelMasterDown
+          expr: |
+            redis_sentinel_masters{state="down"} > 0
+          for: 2m
+          labels:
+            severity: critical
+            component: sentinel
+          annotations:
+            summary: "Sentinel detected master down"
+            description: "Sentinel has detected that the master is down"
+
+        # Sentinel Failover in Progress
+        - alert: SentinelFailoverInProgress
+          expr: |
+            redis_sentinel_masters{state="failover"} > 0
+          for: 1m
+          labels:
+            severity: warning
+            component: sentinel
+          annotations:
+            summary: "Sentinel failover in progress"
+            description: "Sentinel is performing a failover"
+
+        # Redis Pod Down
+        - alert: RedisPodDown
+          expr: |
+            up{job="redis-cluster"} == 0
+          for: 2m
+          labels:
+            severity: critical
+            component: redis
+          annotations:
+            summary: "Redis pod down (instance {{ $labels.pod }})"
+            description: "Redis pod {{ $labels.pod }} is down"
+
+        # Sentinel Pod Down
+        - alert: SentinelPodDown
+          expr: |
+            up{job="redis-sentinel"} == 0
+          for: 2m
+          labels:
+            severity: critical
+            component: sentinel
+          annotations:
+            summary: "Sentinel pod down (instance {{ $labels.pod }})"
+            description: "Sentinel pod {{ $labels.pod }} is down"
+
+        # Redis Cache Hit Ratio Low
+        - alert: RedisCacheHitRatioLow
+          expr: |
+            (redis_keyspace_hits_total / (redis_keyspace_hits_total + redis_keyspace_misses_total)) < 0.5
+          for: 5m
+          labels:
+            severity: info
+            component: redis
+          annotations:
+            summary: "Redis cache hit ratio low (instance {{ $labels.pod }})"
+            description: "Redis cache hit ratio is below 50% (current value: {{ $value | humanizePercentage }})"

@@ -3,6 +3,25 @@ import axios, { AxiosInstance } from 'axios';
 import type { User, TokenPair, AuthResponse } from '@types/index';
 import { AuthError, AuthErrorType } from '@types/index';
 import Config from '@config/Config';
+import uuid from 'react-native-uuid';
+
+let Platform: any;
+try {
+  Platform = require('react-native').Platform;
+} catch (e) {
+  // Fallback for testing
+  Platform = { OS: 'ios', Version: '14.0' };
+}
+
+const uuidv4 = uuid.v4;
+
+export interface DeviceFingerprint {
+  deviceId: string;
+  platform: string;
+  osVersion: string;
+  appVersion: string;
+  createdAt: string;
+}
 
 export class AuthenticationService {
   private static instance: AuthenticationService;
@@ -11,9 +30,12 @@ export class AuthenticationService {
   private accessTokenKey = 'accessToken';
   private refreshTokenKey = 'refreshToken';
   private userKey = 'currentUser';
+  private deviceFingerprintKey = 'deviceFingerprint';
 
   private currentUser: User | null = null;
   private isAuthenticated = false;
+  private deviceFingerprint: DeviceFingerprint | null = null;
+  private tokenRefreshTimer: NodeJS.Timeout | null = null;
 
   private constructor() {
     this.api = axios.create({
@@ -23,16 +45,52 @@ export class AuthenticationService {
       },
     });
 
-    // Add request interceptor to include auth token
+    // Add request interceptor to include auth token and device fingerprint
     this.api.interceptors.request.use(async (config) => {
       const token = await this.getAccessToken();
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
       }
+      
+      // Add device fingerprint to headers
+      const fingerprint = await this.getDeviceFingerprint();
+      if (fingerprint) {
+        config.headers['X-Device-ID'] = fingerprint.deviceId;
+        config.headers['X-Platform'] = fingerprint.platform;
+      }
+      
       return config;
     });
 
+    // Add response interceptor to handle token refresh
+    this.api.interceptors.response.use(
+      (response) => response,
+      async (error) => {
+        const originalRequest = error.config;
+
+        // If 401 and not already retrying, try to refresh token
+        if (error.response?.status === 401 && !originalRequest._retry) {
+          originalRequest._retry = true;
+          try {
+            await this.refreshAccessToken();
+            const token = await this.getAccessToken();
+            if (token) {
+              originalRequest.headers.Authorization = `Bearer ${token}`;
+              return this.api(originalRequest);
+            }
+          } catch (refreshError) {
+            // Refresh failed, logout user
+            await this.logout();
+            throw refreshError;
+          }
+        }
+
+        return Promise.reject(error);
+      }
+    );
+
     this.loadStoredUser();
+    this.initializeTokenRefreshTimer();
   }
 
   static getInstance(): AuthenticationService {
@@ -101,6 +159,7 @@ export class AuthenticationService {
       // Clear stored tokens and user
       await this.clearTokens();
       await this.clearUser();
+      this.clearTokenRefreshTimer();
 
       this.currentUser = null;
       this.isAuthenticated = false;
@@ -164,9 +223,11 @@ export class AuthenticationService {
     try {
       const credentials = await Keychain.getGenericPassword({
         service: this.keychainService,
-        username: this.accessTokenKey,
       });
-      return credentials ? credentials.password : null;
+      if (credentials && credentials.username === this.accessTokenKey) {
+        return credentials.password;
+      }
+      return null;
     } catch (error) {
       console.error('Failed to get access token:', error);
       return null;
@@ -180,11 +241,48 @@ export class AuthenticationService {
     try {
       const credentials = await Keychain.getGenericPassword({
         service: this.keychainService,
-        username: this.refreshTokenKey,
       });
-      return credentials ? credentials.password : null;
+      if (credentials && credentials.username === this.refreshTokenKey) {
+        return credentials.password;
+      }
+      return null;
     } catch (error) {
       console.error('Failed to get refresh token:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Get device fingerprint
+   */
+  async getDeviceFingerprint(): Promise<DeviceFingerprint | null> {
+    if (this.deviceFingerprint) {
+      return this.deviceFingerprint;
+    }
+
+    try {
+      const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+      const stored = await AsyncStorage.getItem(this.deviceFingerprintKey);
+      
+      if (stored) {
+        this.deviceFingerprint = JSON.parse(stored);
+        return this.deviceFingerprint;
+      }
+
+      // Create new device fingerprint
+      const fingerprint: DeviceFingerprint = {
+        deviceId: uuidv4() as string,
+        platform: Platform.OS,
+        osVersion: Platform.Version?.toString() || 'unknown',
+        appVersion: Config.appVersion,
+        createdAt: new Date().toISOString(),
+      };
+
+      await AsyncStorage.setItem(this.deviceFingerprintKey, JSON.stringify(fingerprint));
+      this.deviceFingerprint = fingerprint;
+      return fingerprint;
+    } catch (error) {
+      console.error('Failed to get device fingerprint:', error);
       return null;
     }
   }
@@ -275,6 +373,34 @@ export class AuthenticationService {
     } catch (error) {
       console.error('Failed to extract expiration from token:', error);
       return null;
+    }
+  }
+
+  /**
+   * Initialize automatic token refresh timer
+   */
+  private initializeTokenRefreshTimer(): void {
+    // Check token every minute
+    this.tokenRefreshTimer = setInterval(async () => {
+      try {
+        const token = await this.getAccessToken();
+        if (token && AuthenticationService.shouldRefreshToken(token)) {
+          console.log('Auto-refreshing token...');
+          await this.refreshAccessToken();
+        }
+      } catch (error) {
+        console.error('Auto-refresh failed:', error);
+      }
+    }, 60000); // Check every minute
+  }
+
+  /**
+   * Clear token refresh timer
+   */
+  private clearTokenRefreshTimer(): void {
+    if (this.tokenRefreshTimer) {
+      clearInterval(this.tokenRefreshTimer);
+      this.tokenRefreshTimer = null;
     }
   }
 
@@ -370,5 +496,4 @@ export class AuthenticationService {
   }
 }
 
-export { AuthenticationService };
 export default AuthenticationService.getInstance();
