@@ -1,327 +1,656 @@
-import DatabaseManager from '@database/DatabaseManager';
-import { AchievementData, AchievementError, AchievementErrorType } from '@types/index';
+import axios, { AxiosInstance } from 'axios';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import SQLite from 'react-native-sqlite-storage';
+import uuid from 'react-native-uuid';
 
-const RARITY_XP_REWARDS: Record<string, number> = {
-  COMMON: 25,
-  RARE: 50,
-  EPIC: 100,
-  LEGENDARY: 250,
-};
+export type AchievementRarity = 'Common' | 'Rare' | 'Epic' | 'Legendary';
+export type AchievementCategory = 'Strength' | 'Consistency' | 'Social' | 'Exploration';
+
+export interface Achievement {
+  id: string;
+  name: string;
+  description: string;
+  rarity: AchievementRarity;
+  category: AchievementCategory;
+  xpReward: number;
+  unlockCondition: string;
+  iconUrl: string;
+  createdAt: string;
+}
+
+export interface UserAchievement {
+  id: string;
+  userId: string;
+  achievementId: string;
+  unlockedAt: string;
+  createdAt: string;
+}
+
+export interface AchievementWithUnlockStatus extends Achievement {
+  isUnlocked: boolean;
+  unlockedAt?: string;
+}
+
+interface CacheEntry {
+  data: Achievement[];
+  timestamp: number;
+}
+
+interface UnlockNotification {
+  achievementId: string;
+  achievementName: string;
+  rarity: AchievementRarity;
+  xpReward: number;
+  timestamp: number;
+}
+
+const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
+const DB_NAME = 'fitquest.db';
+const ACHIEVEMENTS_TABLE = 'achievements_cache';
+const USER_ACHIEVEMENTS_TABLE = 'user_achievements_cache';
+const UNLOCK_NOTIFICATIONS_TABLE = 'achievement_notifications';
 
 export class AchievementService {
-  private static instance: AchievementService;
-  private dbManager = DatabaseManager;
+  private apiClient: AxiosInstance;
+  private db: SQLite.SQLiteDatabase | null = null;
+  private currentUserId: string = '';
+  private cache: Map<string, CacheEntry> = new Map();
+  private unlockListeners: Set<(achievement: AchievementWithUnlockStatus) => void> = new Set();
 
-  private constructor() {}
+  constructor(apiBaseUrl: string, userId: string) {
+    this.apiClient = axios.create({
+      baseURL: apiBaseUrl,
+      timeout: 10000,
+    });
+    this.currentUserId = userId;
+    this.initializeDatabase();
+  }
 
-  static getInstance(): AchievementService {
-    if (!AchievementService.instance) {
-      AchievementService.instance = new AchievementService();
+  private async initializeDatabase(): Promise<void> {
+    try {
+      this.db = await SQLite.openDatabase({
+        name: DB_NAME,
+        location: 'default',
+      });
+
+      // Create achievements cache table
+      await this.db.executeSql(`
+        CREATE TABLE IF NOT EXISTS ${ACHIEVEMENTS_TABLE} (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          description TEXT NOT NULL,
+          rarity TEXT NOT NULL,
+          category TEXT NOT NULL,
+          xpReward INTEGER NOT NULL,
+          unlockCondition TEXT NOT NULL,
+          iconUrl TEXT NOT NULL,
+          createdAt TEXT NOT NULL,
+          timestamp INTEGER NOT NULL
+        )
+      `);
+
+      // Create user achievements table
+      await this.db.executeSql(`
+        CREATE TABLE IF NOT EXISTS ${USER_ACHIEVEMENTS_TABLE} (
+          id TEXT PRIMARY KEY,
+          userId TEXT NOT NULL,
+          achievementId TEXT NOT NULL,
+          unlockedAt TEXT NOT NULL,
+          createdAt TEXT NOT NULL,
+          timestamp INTEGER NOT NULL,
+          UNIQUE(userId, achievementId)
+        )
+      `);
+
+      // Create unlock notifications table
+      await this.db.executeSql(`
+        CREATE TABLE IF NOT EXISTS ${UNLOCK_NOTIFICATIONS_TABLE} (
+          id TEXT PRIMARY KEY,
+          achievementId TEXT NOT NULL,
+          achievementName TEXT NOT NULL,
+          rarity TEXT NOT NULL,
+          xpReward INTEGER NOT NULL,
+          timestamp INTEGER NOT NULL
+        )
+      `);
+    } catch (error) {
+      console.error('Failed to initialize achievement database:', error);
     }
-    return AchievementService.instance;
   }
 
   /**
-   * Get all achievements (locked and unlocked)
+   * Fetch all achievement definitions from backend
    */
-  async getAllAchievements(userId: string): Promise<
-    Array<AchievementData & { unlocked: boolean; unlockedAt?: string }>
-  > {
+  async getAllAchievements(): Promise<Achievement[]> {
     try {
-      const result = await this.dbManager.executeSql(
-        `SELECT a.id, a.name, a.description, a.rarity, a.category, a.xpReward, 
-                a.unlockedCondition, a.icon, a.createdAt, ua.unlockedAt
-         FROM achievements a
-         LEFT JOIN userAchievements ua ON a.id = ua.achievementId AND ua.userId = ?
-         ORDER BY a.rarity DESC, a.name ASC`,
-        [userId]
-      );
-
-      const achievements: Array<AchievementData & { unlocked: boolean; unlockedAt?: string }> = [];
-
-      for (let i = 0; i < result.rows.length; i++) {
-        const row = result.rows.item(i);
-        achievements.push({
-          id: row.id,
-          name: row.name,
-          description: row.description,
-          rarity: row.rarity,
-          category: row.category,
-          xpReward: row.xpReward,
-          unlockedCondition: row.unlockedCondition,
-          icon: row.icon,
-          createdAt: row.createdAt,
-          unlocked: !!row.unlockedAt,
-          unlockedAt: row.unlockedAt,
-        });
+      // Check cache first
+      const cacheKey = 'all_achievements';
+      const cached = this.cache.get(cacheKey);
+      if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+        return cached.data;
       }
 
-      return achievements;
+      // Fetch from backend
+      const response = await this.apiClient.get<Achievement[]>('/achievements');
+      const data = response.data;
+
+      // Update cache
+      this.cache.set(cacheKey, {
+        data,
+        timestamp: Date.now(),
+      });
+
+      // Store in local database
+      await this.cacheAchievementsLocally(data);
+
+      return data;
     } catch (error) {
-      throw new AchievementError(
-        AchievementErrorType.DatabaseError,
-        `Failed to get all achievements: ${error}`
-      );
+      console.warn('Failed to fetch achievements, using cached data:', error);
+      return this.getAchievementsFromCache();
     }
   }
 
   /**
-   * Get unlocked achievements for a user
+   * Get user's achievements with unlock status
    */
-  async getUnlockedAchievements(userId: string): Promise<AchievementData[]> {
+  async getUserAchievements(): Promise<AchievementWithUnlockStatus[]> {
     try {
-      const result = await this.dbManager.executeSql(
-        `SELECT a.id, a.name, a.description, a.rarity, a.category, a.xpReward, 
-                a.unlockedCondition, a.icon, a.createdAt
-         FROM achievements a
-         JOIN userAchievements ua ON a.id = ua.achievementId
-         WHERE ua.userId = ?
-         ORDER BY ua.unlockedAt DESC`,
-        [userId]
+      // Get all achievements
+      const allAchievements = await this.getAllAchievements();
+
+      // Get user's unlocked achievements
+      const response = await this.apiClient.get<UserAchievement[]>(
+        `/users/${this.currentUserId}/achievements`
       );
+      const unlockedAchievements = response.data;
 
-      const achievements: AchievementData[] = [];
-
-      for (let i = 0; i < result.rows.length; i++) {
-        const row = result.rows.item(i);
-        achievements.push({
-          id: row.id,
-          name: row.name,
-          description: row.description,
-          rarity: row.rarity,
-          category: row.category,
-          xpReward: row.xpReward,
-          unlockedCondition: row.unlockedCondition,
-          icon: row.icon,
-          createdAt: row.createdAt,
-        });
+      // Create a map of unlocked achievement IDs for quick lookup
+      const unlockedMap = new Map<string, UserAchievement>();
+      for (const ua of unlockedAchievements) {
+        unlockedMap.set(ua.achievementId, ua);
       }
 
-      return achievements;
+      // Combine achievements with unlock status
+      const result: AchievementWithUnlockStatus[] = allAchievements.map((achievement) => {
+        const unlocked = unlockedMap.get(achievement.id);
+        return {
+          ...achievement,
+          isUnlocked: !!unlocked,
+          unlockedAt: unlocked?.unlockedAt,
+        };
+      });
+
+      // Cache user achievements locally
+      await this.cacheUserAchievementsLocally(unlockedAchievements);
+
+      return result;
     } catch (error) {
-      throw new AchievementError(
-        AchievementErrorType.DatabaseError,
-        `Failed to get unlocked achievements: ${error}`
-      );
+      console.warn('Failed to fetch user achievements, using cached data:', error);
+      return this.getUserAchievementsFromCache();
     }
   }
 
   /**
-   * Get achievements by category
+   * Get achievements filtered by category
    */
   async getAchievementsByCategory(
-    userId: string,
-    category: string
-  ): Promise<Array<AchievementData & { unlocked: boolean }>> {
+    category: AchievementCategory
+  ): Promise<AchievementWithUnlockStatus[]> {
+    const allAchievements = await this.getUserAchievements();
+    return allAchievements.filter((a) => a.category === category);
+  }
+
+  /**
+   * Get achievements filtered by rarity
+   */
+  async getAchievementsByRarity(
+    rarity: AchievementRarity
+  ): Promise<AchievementWithUnlockStatus[]> {
+    const allAchievements = await this.getUserAchievements();
+    return allAchievements.filter((a) => a.rarity === rarity);
+  }
+
+  /**
+   * Get achievements filtered by both category and rarity
+   */
+  async getAchievementsByCategoryAndRarity(
+    category: AchievementCategory,
+    rarity: AchievementRarity
+  ): Promise<AchievementWithUnlockStatus[]> {
+    const allAchievements = await this.getUserAchievements();
+    return allAchievements.filter((a) => a.category === category && a.rarity === rarity);
+  }
+
+  /**
+   * Get only unlocked achievements
+   */
+  async getUnlockedAchievements(): Promise<AchievementWithUnlockStatus[]> {
+    const allAchievements = await this.getUserAchievements();
+    return allAchievements.filter((a) => a.isUnlocked);
+  }
+
+  /**
+   * Get only locked achievements
+   */
+  async getLockedAchievements(): Promise<AchievementWithUnlockStatus[]> {
+    const allAchievements = await this.getUserAchievements();
+    return allAchievements.filter((a) => !a.isUnlocked);
+  }
+
+  /**
+   * Check if a specific achievement is unlocked
+   */
+  async isAchievementUnlocked(achievementId: string): Promise<boolean> {
     try {
-      const result = await this.dbManager.executeSql(
-        `SELECT a.id, a.name, a.description, a.rarity, a.category, a.xpReward, 
-                a.unlockedCondition, a.icon, a.createdAt, ua.unlockedAt
-         FROM achievements a
-         LEFT JOIN userAchievements ua ON a.id = ua.achievementId AND ua.userId = ?
-         WHERE a.category = ?
-         ORDER BY a.rarity DESC, a.name ASC`,
-        [userId, category]
+      const response = await this.apiClient.get<boolean>(
+        `/users/${this.currentUserId}/achievements/${achievementId}/unlocked`
+      );
+      return response.data;
+    } catch (error) {
+      console.warn(`Failed to check achievement unlock status:`, error);
+      return this.isAchievementUnlockedFromCache(achievementId);
+    }
+  }
+
+  /**
+   * Detect and handle achievement unlocks
+   * Called when user completes a workout or reaches a milestone
+   */
+  async detectAchievementUnlocks(): Promise<AchievementWithUnlockStatus[]> {
+    try {
+      // Get current user achievements
+      const userAchievements = await this.getUserAchievements();
+
+      // Get previously unlocked achievements from local storage
+      const previouslyUnlocked = await this.getPreviouslyUnlockedAchievements();
+      const previouslyUnlockedSet = new Set(previouslyUnlocked);
+
+      // Find newly unlocked achievements
+      const newlyUnlocked: AchievementWithUnlockStatus[] = [];
+      for (const achievement of userAchievements) {
+        if (achievement.isUnlocked && !previouslyUnlockedSet.has(achievement.id)) {
+          newlyUnlocked.push(achievement);
+          // Store notification
+          await this.storeUnlockNotification({
+            achievementId: achievement.id,
+            achievementName: achievement.name,
+            rarity: achievement.rarity,
+            xpReward: achievement.xpReward,
+            timestamp: Date.now(),
+          });
+        }
+      }
+
+      // Update previously unlocked list
+      if (newlyUnlocked.length > 0) {
+        const allUnlocked = userAchievements
+          .filter((a) => a.isUnlocked)
+          .map((a) => a.id);
+        await this.savePreviouslyUnlockedAchievements(allUnlocked);
+
+        // Notify listeners
+        for (const achievement of newlyUnlocked) {
+          this.notifyUnlockListeners(achievement);
+        }
+      }
+
+      return newlyUnlocked;
+    } catch (error) {
+      console.error('Failed to detect achievement unlocks:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Get pending unlock notifications
+   */
+  async getPendingNotifications(): Promise<UnlockNotification[]> {
+    if (!this.db) return [];
+
+    try {
+      const result = await this.db.executeSql(
+        `SELECT achievementId, achievementName, rarity, xpReward, timestamp 
+         FROM ${UNLOCK_NOTIFICATIONS_TABLE} 
+         ORDER BY timestamp DESC`
       );
 
-      const achievements: Array<AchievementData & { unlocked: boolean }> = [];
+      const notifications: UnlockNotification[] = [];
+      for (let i = 0; i < result[0].rows.length; i++) {
+        notifications.push(result[0].rows.item(i));
+      }
 
-      for (let i = 0; i < result.rows.length; i++) {
-        const row = result.rows.item(i);
-        achievements.push({
-          id: row.id,
-          name: row.name,
-          description: row.description,
-          rarity: row.rarity,
-          category: row.category,
-          xpReward: row.xpReward,
-          unlockedCondition: row.unlockedCondition,
-          icon: row.icon,
-          createdAt: row.createdAt,
-          unlocked: !!row.unlockedAt,
-        });
+      return notifications;
+    } catch (error) {
+      console.error('Failed to get pending notifications:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Clear a notification after displaying it
+   */
+  async clearNotification(achievementId: string): Promise<void> {
+    if (!this.db) return;
+
+    try {
+      await this.db.executeSql(
+        `DELETE FROM ${UNLOCK_NOTIFICATIONS_TABLE} WHERE achievementId = ?`,
+        [achievementId]
+      );
+    } catch (error) {
+      console.error('Failed to clear notification:', error);
+    }
+  }
+
+  /**
+   * Register a listener for achievement unlocks
+   */
+  onAchievementUnlocked(
+    listener: (achievement: AchievementWithUnlockStatus) => void
+  ): () => void {
+    this.unlockListeners.add(listener);
+    // Return unsubscribe function
+    return () => {
+      this.unlockListeners.delete(listener);
+    };
+  }
+
+  /**
+   * Get achievement statistics
+   */
+  async getAchievementStats(): Promise<{
+    totalAchievements: number;
+    unlockedCount: number;
+    lockedCount: number;
+    totalXPFromAchievements: number;
+    byRarity: Record<AchievementRarity, { total: number; unlocked: number }>;
+    byCategory: Record<AchievementCategory, { total: number; unlocked: number }>;
+  }> {
+    const allAchievements = await this.getUserAchievements();
+
+    const stats = {
+      totalAchievements: allAchievements.length,
+      unlockedCount: 0,
+      lockedCount: 0,
+      totalXPFromAchievements: 0,
+      byRarity: {
+        Common: { total: 0, unlocked: 0 },
+        Rare: { total: 0, unlocked: 0 },
+        Epic: { total: 0, unlocked: 0 },
+        Legendary: { total: 0, unlocked: 0 },
+      },
+      byCategory: {
+        Strength: { total: 0, unlocked: 0 },
+        Consistency: { total: 0, unlocked: 0 },
+        Social: { total: 0, unlocked: 0 },
+        Exploration: { total: 0, unlocked: 0 },
+      },
+    };
+
+    for (const achievement of allAchievements) {
+      if (achievement.isUnlocked) {
+        stats.unlockedCount++;
+        stats.totalXPFromAchievements += achievement.xpReward;
+      } else {
+        stats.lockedCount++;
+      }
+
+      stats.byRarity[achievement.rarity].total++;
+      if (achievement.isUnlocked) {
+        stats.byRarity[achievement.rarity].unlocked++;
+      }
+
+      stats.byCategory[achievement.category].total++;
+      if (achievement.isUnlocked) {
+        stats.byCategory[achievement.category].unlocked++;
+      }
+    }
+
+    return stats;
+  }
+
+  /**
+   * Cache achievements locally
+   */
+  private async cacheAchievementsLocally(achievements: Achievement[]): Promise<void> {
+    if (!this.db) return;
+
+    try {
+      // Clear old entries
+      await this.db.executeSql(`DELETE FROM ${ACHIEVEMENTS_TABLE}`);
+
+      // Insert new entries
+      const timestamp = Date.now();
+      for (const achievement of achievements) {
+        await this.db.executeSql(
+          `INSERT INTO ${ACHIEVEMENTS_TABLE} 
+           (id, name, description, rarity, category, xpReward, unlockCondition, iconUrl, createdAt, timestamp) 
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            achievement.id,
+            achievement.name,
+            achievement.description,
+            achievement.rarity,
+            achievement.category,
+            achievement.xpReward,
+            achievement.unlockCondition,
+            achievement.iconUrl,
+            achievement.createdAt,
+            timestamp,
+          ]
+        );
+      }
+    } catch (error) {
+      console.error('Failed to cache achievements locally:', error);
+    }
+  }
+
+  /**
+   * Cache user achievements locally
+   */
+  private async cacheUserAchievementsLocally(
+    userAchievements: UserAchievement[]
+  ): Promise<void> {
+    if (!this.db) return;
+
+    try {
+      // Clear old entries for this user
+      await this.db.executeSql(
+        `DELETE FROM ${USER_ACHIEVEMENTS_TABLE} WHERE userId = ?`,
+        [this.currentUserId]
+      );
+
+      // Insert new entries
+      const timestamp = Date.now();
+      for (const ua of userAchievements) {
+        await this.db.executeSql(
+          `INSERT INTO ${USER_ACHIEVEMENTS_TABLE} 
+           (id, userId, achievementId, unlockedAt, createdAt, timestamp) 
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          [ua.id, ua.userId, ua.achievementId, ua.unlockedAt, ua.createdAt, timestamp]
+        );
+      }
+    } catch (error) {
+      console.error('Failed to cache user achievements locally:', error);
+    }
+  }
+
+  /**
+   * Retrieve achievements from local cache
+   */
+  private async getAchievementsFromCache(): Promise<Achievement[]> {
+    if (!this.db) return [];
+
+    try {
+      const result = await this.db.executeSql(
+        `SELECT id, name, description, rarity, category, xpReward, unlockCondition, iconUrl, createdAt 
+         FROM ${ACHIEVEMENTS_TABLE} 
+         ORDER BY createdAt ASC`
+      );
+
+      const achievements: Achievement[] = [];
+      for (let i = 0; i < result[0].rows.length; i++) {
+        achievements.push(result[0].rows.item(i));
       }
 
       return achievements;
     } catch (error) {
-      throw new AchievementError(
-        AchievementErrorType.DatabaseError,
-        `Failed to get achievements by category: ${error}`
-      );
+      console.error('Failed to retrieve achievements from cache:', error);
+      return [];
     }
   }
 
   /**
-   * Check if user has unlocked an achievement
+   * Retrieve user achievements from local cache
    */
-  async hasUnlockedAchievement(userId: string, achievementId: string): Promise<boolean> {
+  private async getUserAchievementsFromCache(): Promise<AchievementWithUnlockStatus[]> {
+    if (!this.db) return [];
+
     try {
-      const result = await this.dbManager.executeSql(
-        `SELECT id FROM userAchievements
+      // Get all achievements
+      const allAchievements = await this.getAchievementsFromCache();
+
+      // Get user's unlocked achievements
+      const result = await this.db.executeSql(
+        `SELECT achievementId, unlockedAt FROM ${USER_ACHIEVEMENTS_TABLE} WHERE userId = ?`,
+        [this.currentUserId]
+      );
+
+      const unlockedMap = new Map<string, string>();
+      for (let i = 0; i < result[0].rows.length; i++) {
+        const row = result[0].rows.item(i);
+        unlockedMap.set(row.achievementId, row.unlockedAt);
+      }
+
+      // Combine achievements with unlock status
+      return allAchievements.map((achievement) => {
+        const unlockedAt = unlockedMap.get(achievement.id);
+        return {
+          ...achievement,
+          isUnlocked: !!unlockedAt,
+          unlockedAt,
+        };
+      });
+    } catch (error) {
+      console.error('Failed to retrieve user achievements from cache:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Check if achievement is unlocked from cache
+   */
+  private async isAchievementUnlockedFromCache(achievementId: string): Promise<boolean> {
+    if (!this.db) return false;
+
+    try {
+      const result = await this.db.executeSql(
+        `SELECT COUNT(*) as count FROM ${USER_ACHIEVEMENTS_TABLE} 
          WHERE userId = ? AND achievementId = ?`,
-        [userId, achievementId]
+        [this.currentUserId, achievementId]
       );
 
-      return result.rows.length > 0;
+      return result[0].rows.item(0).count > 0;
     } catch (error) {
-      throw new AchievementError(
-        AchievementErrorType.DatabaseError,
-        `Failed to check if achievement unlocked: ${error}`
-      );
+      console.error('Failed to check achievement unlock status from cache:', error);
+      return false;
     }
   }
 
   /**
-   * Unlock an achievement for a user
+   * Store unlock notification
    */
-  async unlockAchievement(
-    userId: string,
-    achievementId: string
-  ): Promise<{ achieved: boolean; xpReward?: number }> {
+  private async storeUnlockNotification(notification: UnlockNotification): Promise<void> {
+    if (!this.db) return;
+
     try {
-      // Check if already unlocked
-      const alreadyUnlocked = await this.hasUnlockedAchievement(userId, achievementId);
-
-      if (alreadyUnlocked) {
-        return { achieved: false };
-      }
-
-      // Get achievement details
-      const achievementResult = await this.dbManager.executeSql(
-        `SELECT xpReward FROM achievements WHERE id = ?`,
-        [achievementId]
+      await this.db.executeSql(
+        `INSERT INTO ${UNLOCK_NOTIFICATIONS_TABLE} 
+         (id, achievementId, achievementName, rarity, xpReward, timestamp) 
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [
+          uuid.v4(),
+          notification.achievementId,
+          notification.achievementName,
+          notification.rarity,
+          notification.xpReward,
+          notification.timestamp,
+        ]
       );
-
-      if (achievementResult.rows.length === 0) {
-        throw new AchievementError(
-          AchievementErrorType.AchievementNotFound,
-          'Achievement not found'
-        );
-      }
-
-      const xpReward = achievementResult.rows.item(0).xpReward;
-
-      // Insert user achievement
-      await this.dbManager.executeSql(
-        `INSERT INTO userAchievements (userId, achievementId, unlockedAt, createdAt)
-         VALUES (?, ?, ?, ?)`,
-        [userId, achievementId, new Date().toISOString(), new Date().toISOString()]
-      );
-
-      return {
-        achieved: true,
-        xpReward,
-      };
     } catch (error) {
-      throw new AchievementError(
-        AchievementErrorType.DatabaseError,
-        `Failed to unlock achievement: ${error}`
-      );
+      console.error('Failed to store unlock notification:', error);
     }
   }
 
   /**
-   * Get XP reward for rarity tier
+   * Get previously unlocked achievements from AsyncStorage
    */
-  getXPRewardForRarity(rarity: string): number {
-    return RARITY_XP_REWARDS[rarity] || 0;
-  }
-
-  /**
-   * Get all valid rarity tiers
-   */
-  getValidRarities(): string[] {
-    return ['COMMON', 'RARE', 'EPIC', 'LEGENDARY'];
-  }
-
-  /**
-   * Get all valid categories
-   */
-  getValidCategories(): string[] {
-    return ['STRENGTH', 'CONSISTENCY', 'SOCIAL', 'EXPLORATION'];
-  }
-
-  /**
-   * Validate achievement data
-   */
-  validateAchievementData(
-    name: string,
-    rarity: string,
-    category: string,
-    xpReward: number
-  ): void {
-    if (!name || name.length === 0) {
-      throw new AchievementError(
-        AchievementErrorType.InvalidData,
-        'Achievement name cannot be empty'
-      );
-    }
-
-    if (!this.getValidRarities().includes(rarity)) {
-      throw new AchievementError(
-        AchievementErrorType.InvalidData,
-        'Invalid rarity tier'
-      );
-    }
-
-    if (!this.getValidCategories().includes(category)) {
-      throw new AchievementError(
-        AchievementErrorType.InvalidData,
-        'Invalid category'
-      );
-    }
-
-    if (xpReward < 0) {
-      throw new AchievementError(
-        AchievementErrorType.InvalidData,
-        'XP reward cannot be negative'
-      );
-    }
-
-    // Verify XP reward matches rarity
-    const expectedReward = this.getXPRewardForRarity(rarity);
-    if (xpReward !== expectedReward) {
-      throw new AchievementError(
-        AchievementErrorType.InvalidData,
-        `XP reward for ${rarity} must be ${expectedReward}`
-      );
-    }
-  }
-
-  /**
-   * Get achievement count by rarity
-   */
-  async getAchievementCountByRarity(userId: string): Promise<Record<string, number>> {
+  private async getPreviouslyUnlockedAchievements(): Promise<string[]> {
     try {
-      const result = await this.dbManager.executeSql(
-        `SELECT a.rarity, COUNT(*) as count
-         FROM userAchievements ua
-         JOIN achievements a ON ua.achievementId = a.id
-         WHERE ua.userId = ?
-         GROUP BY a.rarity`,
-        [userId]
+      const stored = await AsyncStorage.getItem(
+        `achievement_unlocked_${this.currentUserId}`
       );
-
-      const counts: Record<string, number> = {
-        COMMON: 0,
-        RARE: 0,
-        EPIC: 0,
-        LEGENDARY: 0,
-      };
-
-      for (let i = 0; i < result.rows.length; i++) {
-        const row = result.rows.item(i);
-        counts[row.rarity] = row.count;
-      }
-
-      return counts;
+      return stored ? JSON.parse(stored) : [];
     } catch (error) {
-      throw new AchievementError(
-        AchievementErrorType.DatabaseError,
-        `Failed to get achievement count by rarity: ${error}`
+      console.error('Failed to get previously unlocked achievements:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Save previously unlocked achievements to AsyncStorage
+   */
+  private async savePreviouslyUnlockedAchievements(achievementIds: string[]): Promise<void> {
+    try {
+      await AsyncStorage.setItem(
+        `achievement_unlocked_${this.currentUserId}`,
+        JSON.stringify(achievementIds)
       );
+    } catch (error) {
+      console.error('Failed to save previously unlocked achievements:', error);
+    }
+  }
+
+  /**
+   * Notify all listeners of achievement unlock
+   */
+  private notifyUnlockListeners(achievement: AchievementWithUnlockStatus): void {
+    for (const listener of this.unlockListeners) {
+      try {
+        listener(achievement);
+      } catch (error) {
+        console.error('Error in achievement unlock listener:', error);
+      }
+    }
+  }
+
+  /**
+   * Clear all cached data
+   */
+  async clearCache(): Promise<void> {
+    this.cache.clear();
+
+    if (!this.db) return;
+
+    try {
+      await this.db.executeSql(`DELETE FROM ${ACHIEVEMENTS_TABLE}`);
+      await this.db.executeSql(`DELETE FROM ${USER_ACHIEVEMENTS_TABLE}`);
+      await this.db.executeSql(`DELETE FROM ${UNLOCK_NOTIFICATIONS_TABLE}`);
+    } catch (error) {
+      console.error('Failed to clear achievement cache:', error);
+    }
+  }
+
+  /**
+   * Close database connection
+   */
+  async close(): Promise<void> {
+    if (this.db) {
+      try {
+        await this.db.close();
+      } catch (error) {
+        console.error('Failed to close achievement database:', error);
+      }
     }
   }
 }
-
-export default AchievementService.getInstance();

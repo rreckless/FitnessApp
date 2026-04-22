@@ -1,13 +1,11 @@
-import axios from 'axios';
-import { AuthenticationService } from './AuthenticationService';
-import { SyncEngine } from './SyncEngine';
-import { DatabaseManager } from '../database/DatabaseManager';
-import Config from '../config/Config';
+import axios, { AxiosInstance } from 'axios';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import SQLite from 'react-native-sqlite-storage';
+import uuid from 'react-native-uuid';
 
-// MARK: - Types
-
-export interface BodyWeight {
+export interface WeightEntry {
   id: string;
+  userId: string;
   weight: number;
   notes?: string;
   recordedAt: string;
@@ -15,8 +13,9 @@ export interface BodyWeight {
   updatedAt: string;
 }
 
-export interface BodyMeasurement {
+export interface MeasurementEntry {
   id: string;
+  userId: string;
   chest?: number;
   waist?: number;
   hips?: number;
@@ -28,665 +27,1108 @@ export interface BodyMeasurement {
   updatedAt: string;
 }
 
-export interface TrendLine {
-  startDate: string;
-  endDate: string;
-  startValue: number;
-  endValue: number;
-  trend: 'increasing' | 'decreasing' | 'stable';
-  changePercentage: number;
-}
-
-export interface MeasurementChange {
-  current: number;
-  previous: number;
-  change: number;
-  changePercentage: number;
-}
-
 export interface ProgressPhoto {
   id: string;
+  userId: string;
   imageUrl: string;
   thumbnailUrl?: string;
   notes?: string;
   recordedAt: string;
   createdAt: string;
-  updatedAt: string;
 }
 
-// MARK: - BodyTrackerService
+export interface WeightTrendData {
+  date: string;
+  weight: number;
+  trendValue?: number;
+}
+
+export interface MeasurementChange {
+  measurement: string;
+  current: number;
+  previous: number;
+  change: number;
+  changePercent: number;
+}
+
+export interface PhotoComparison {
+  beforePhoto: ProgressPhoto;
+  afterPhoto: ProgressPhoto;
+}
+
+interface CacheEntry {
+  data: any;
+  timestamp: number;
+}
+
+const CACHE_DURATION = 10 * 60 * 1000; // 10 minutes
+const DB_NAME = 'fitquest.db';
+const WEIGHT_TABLE = 'body_weight';
+const MEASUREMENT_TABLE = 'body_measurements';
+const PHOTO_TABLE = 'progress_photos';
+const SYNC_QUEUE_TABLE = 'body_tracker_sync_queue';
+const EDIT_WINDOW_DAYS = 7;
 
 export class BodyTrackerService {
-  private static instance: BodyTrackerService;
-  private authService: AuthenticationService;
-  private syncEngine: SyncEngine;
-  private dbManager: DatabaseManager;
-  private apiClient: any;
+  private apiClient: AxiosInstance;
+  private db: SQLite.SQLiteDatabase | null = null;
+  private currentUserId: string = '';
+  private cache: Map<string, CacheEntry> = new Map();
 
-  private constructor() {
-    this.authService = AuthenticationService.getInstance();
-    this.syncEngine = SyncEngine.getInstance();
-    this.dbManager = DatabaseManager.getInstance();
+  constructor(apiBaseUrl: string, userId: string) {
     this.apiClient = axios.create({
-      baseURL: Config.apiBaseURL,
+      baseURL: apiBaseUrl,
       timeout: 10000,
     });
+    this.currentUserId = userId;
+    this.initializeDatabase();
   }
 
-  static getInstance(): BodyTrackerService {
-    if (!BodyTrackerService.instance) {
-      BodyTrackerService.instance = new BodyTrackerService();
+  private async initializeDatabase(): Promise<void> {
+    try {
+      this.db = await SQLite.openDatabase({
+        name: DB_NAME,
+        location: 'default',
+      });
+
+      // Create weight table
+      await this.db.executeSql(`
+        CREATE TABLE IF NOT EXISTS ${WEIGHT_TABLE} (
+          id TEXT PRIMARY KEY,
+          userId TEXT NOT NULL,
+          weight REAL NOT NULL,
+          notes TEXT,
+          recordedAt TEXT NOT NULL,
+          createdAt TEXT NOT NULL,
+          updatedAt TEXT NOT NULL,
+          synced INTEGER DEFAULT 0
+        )
+      `);
+
+      // Create measurement table
+      await this.db.executeSql(`
+        CREATE TABLE IF NOT EXISTS ${MEASUREMENT_TABLE} (
+          id TEXT PRIMARY KEY,
+          userId TEXT NOT NULL,
+          chest REAL,
+          waist REAL,
+          hips REAL,
+          arms REAL,
+          thighs REAL,
+          notes TEXT,
+          recordedAt TEXT NOT NULL,
+          createdAt TEXT NOT NULL,
+          updatedAt TEXT NOT NULL,
+          synced INTEGER DEFAULT 0
+        )
+      `);
+
+      // Create photo table
+      await this.db.executeSql(`
+        CREATE TABLE IF NOT EXISTS ${PHOTO_TABLE} (
+          id TEXT PRIMARY KEY,
+          userId TEXT NOT NULL,
+          imageUrl TEXT NOT NULL,
+          thumbnailUrl TEXT,
+          notes TEXT,
+          recordedAt TEXT NOT NULL,
+          createdAt TEXT NOT NULL,
+          synced INTEGER DEFAULT 0
+        )
+      `);
+
+      // Create sync queue table
+      await this.db.executeSql(`
+        CREATE TABLE IF NOT EXISTS ${SYNC_QUEUE_TABLE} (
+          id TEXT PRIMARY KEY,
+          operation TEXT NOT NULL,
+          entityType TEXT NOT NULL,
+          entityId TEXT NOT NULL,
+          payload TEXT NOT NULL,
+          status TEXT DEFAULT 'PENDING',
+          createdAt TEXT NOT NULL
+        )
+      `);
+    } catch (error) {
+      console.error('Failed to initialize body tracker database:', error);
     }
-    return BodyTrackerService.instance;
   }
-
-  // MARK: - Body Weight
 
   /**
-   * Log a new body weight entry
+   * Log a weight entry
    */
-  async logWeight(weight: number, notes?: string, recordedAt?: string): Promise<BodyWeight> {
+  async logWeight(weight: number, notes?: string): Promise<WeightEntry> {
+    const entry: WeightEntry = {
+      id: uuid.v4() as string,
+      userId: this.currentUserId,
+      weight,
+      notes,
+      recordedAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    // Store locally first
+    await this.storeWeightLocally(entry);
+
+    // Try to sync to backend
     try {
-      const now = new Date().toISOString();
-      const recordedAtValue = recordedAt || now;
-      const userId = await this.authService.getUserId();
-
-      // Create local entry
-      const localEntry: BodyWeight = {
-        id: `weight_${Date.now()}`,
-        weight,
-        notes,
-        recordedAt: recordedAtValue,
-        createdAt: now,
-        updatedAt: now,
-      };
-
-      // Store locally
-      await this.dbManager.insertBodyWeight(localEntry);
-
-      // Queue for sync
-      await this.syncEngine.queueOperation(userId, 'CREATE', 'WEIGHT', localEntry.id, JSON.stringify(localEntry));
-
-      // Try to sync immediately
-      try {
-        const response = await this.apiClient.post('/body/weight', {
-          weight,
-          notes,
-          recordedAt: recordedAtValue,
-        });
-
-        // Update with server ID
-        const serverEntry = response.data;
-        await this.dbManager.updateBodyWeight(localEntry.id, serverEntry);
-
-        return serverEntry;
-      } catch (error) {
-        // Offline - return local entry
-        console.warn('Failed to sync weight entry, will retry later', error);
-        return localEntry;
-      }
+      const response = await this.apiClient.post<WeightEntry>('/body/weight', entry);
+      await this.markWeightAsSynced(entry.id);
+      return response.data;
     } catch (error) {
-      console.error('Failed to log weight', error);
-      throw error;
+      console.warn('Failed to sync weight entry, queued for later:', error);
+      await this.queueForSync('CREATE', 'WEIGHT', entry.id, entry);
+      return entry;
     }
   }
 
   /**
    * Get weight history
    */
-  async getWeightHistory(limit: number = 100, offset: number = 0): Promise<{ history: BodyWeight[]; trendLine: TrendLine | null }> {
+  async getWeightHistory(startDate?: string, endDate?: string): Promise<WeightEntry[]> {
     try {
-      // Try to fetch from server
-      try {
-        const response = await this.apiClient.get('/body/weight', {
-          params: { limit, offset },
-        });
-
-        // Cache locally
-        for (const entry of response.data.history) {
-          await this.dbManager.insertBodyWeight(entry);
-        }
-
-        return {
-          history: response.data.history,
-          trendLine: response.data.trendLine,
-        };
-      } catch (error) {
-        // Offline - return local data
-        console.warn('Failed to fetch weight history from server, using local cache', error);
-        const localHistory = await this.dbManager.getBodyWeightHistory(limit, offset);
-        const trendLine = this.calculateLocalWeightTrendLine(localHistory);
-
-        return {
-          history: localHistory,
-          trendLine,
-        };
+      const cacheKey = `weight_history_${startDate}_${endDate}`;
+      const cached = this.cache.get(cacheKey);
+      if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+        return cached.data as WeightEntry[];
       }
+
+      const params: any = {};
+      if (startDate) params.startDate = startDate;
+      if (endDate) params.endDate = endDate;
+
+      const response = await this.apiClient.get<WeightEntry[]>('/body/weight', { params });
+      const data = response.data;
+
+      this.cache.set(cacheKey, { data, timestamp: Date.now() });
+      await this.cacheWeightLocally(data);
+
+      return data;
     } catch (error) {
-      console.error('Failed to get weight history', error);
-      throw error;
+      console.warn('Failed to fetch weight history, using cached data:', error);
+      return this.getWeightFromCache(startDate, endDate);
     }
   }
 
   /**
-   * Update a weight entry (within 7 days)
+   * Get weight trend data with trend line
    */
-  async updateWeight(weightId: string, weight: number, notes?: string): Promise<BodyWeight> {
-    try {
-      const now = new Date().toISOString();
-      const userId = await this.authService.getUserId();
+  async getWeightTrend(days: number = 30): Promise<WeightTrendData[]> {
+    const endDate = new Date();
+    const startDate = new Date(endDate.getTime() - days * 24 * 60 * 60 * 1000);
 
-      // Update locally
-      const updated: BodyWeight = {
-        id: weightId,
-        weight,
-        notes,
-        recordedAt: new Date().toISOString(),
-        createdAt: new Date().toISOString(),
-        updatedAt: now,
-      };
+    const entries = await this.getWeightHistory(
+      startDate.toISOString().split('T')[0],
+      endDate.toISOString().split('T')[0]
+    );
 
-      await this.dbManager.updateBodyWeight(weightId, updated);
+    const trendData = entries.map(entry => ({
+      date: entry.recordedAt.split('T')[0],
+      weight: entry.weight,
+    }));
 
-      // Queue for sync
-      await this.syncEngine.queueOperation(userId, 'UPDATE', 'WEIGHT', weightId, JSON.stringify(updated));
+    // Calculate trend line using simple moving average
+    const trendLine = this.calculateTrendLine(trendData);
 
-      // Try to sync
-      try {
-        const response = await this.apiClient.put(`/body/weight/${weightId}`, {
-          weight,
-          notes,
-        });
-
-        return response.data;
-      } catch (error) {
-        console.warn('Failed to sync weight update, will retry later', error);
-        return updated;
-      }
-    } catch (error) {
-      console.error('Failed to update weight', error);
-      throw error;
-    }
+    return trendLine;
   }
 
   /**
-   * Delete a weight entry (within 7 days)
+   * Edit weight entry (within 7 days)
    */
-  async deleteWeight(weightId: string): Promise<void> {
-    try {
-      const userId = await this.authService.getUserId();
+  async editWeight(id: string, weight: number, notes?: string): Promise<WeightEntry> {
+    const entry = await this.getWeightById(id);
+    if (!entry) throw new Error('Weight entry not found');
 
-      // Delete locally
-      await this.dbManager.deleteBodyWeight(weightId);
+    const createdDate = new Date(entry.createdAt);
+    const now = new Date();
+    const daysDiff = (now.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24);
 
-      // Queue for sync
-      await this.syncEngine.queueOperation(userId, 'DELETE', 'WEIGHT', weightId, '{}');
-
-      // Try to sync
-      try {
-        await this.apiClient.delete(`/body/weight/${weightId}`);
-      } catch (error) {
-        console.warn('Failed to sync weight deletion, will retry later', error);
-      }
-    } catch (error) {
-      console.error('Failed to delete weight', error);
-      throw error;
+    if (daysDiff > EDIT_WINDOW_DAYS) {
+      throw new Error(`Cannot edit weight entry older than ${EDIT_WINDOW_DAYS} days`);
     }
-  }
 
-  // MARK: - Body Measurements
-
-  /**
-   * Log a new body measurement entry
-   */
-  async logMeasurement(
-    measurements: {
-      chest?: number;
-      waist?: number;
-      hips?: number;
-      arms?: number;
-      thighs?: number;
-    },
-    notes?: string,
-    recordedAt?: string
-  ): Promise<BodyMeasurement> {
-    try {
-      const now = new Date().toISOString();
-      const recordedAtValue = recordedAt || now;
-      const userId = await this.authService.getUserId();
-
-      // Create local entry
-      const localEntry: BodyMeasurement = {
-        id: `measurement_${Date.now()}`,
-        ...measurements,
-        notes,
-        recordedAt: recordedAtValue,
-        createdAt: now,
-        updatedAt: now,
-      };
-
-      // Store locally
-      await this.dbManager.insertBodyMeasurement(localEntry);
-
-      // Queue for sync
-      await this.syncEngine.queueOperation(userId, 'CREATE', 'MEASUREMENT', localEntry.id, JSON.stringify(localEntry));
-
-      // Try to sync immediately
-      try {
-        const response = await this.apiClient.post('/body/measurements', {
-          ...measurements,
-          notes,
-          recordedAt: recordedAtValue,
-        });
-
-        // Update with server ID
-        const serverEntry = response.data;
-        await this.dbManager.updateBodyMeasurement(localEntry.id, serverEntry);
-
-        return serverEntry;
-      } catch (error) {
-        // Offline - return local entry
-        console.warn('Failed to sync measurement entry, will retry later', error);
-        return localEntry;
-      }
-    } catch (error) {
-      console.error('Failed to log measurement', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Get measurement history with changes
-   */
-  async getMeasurementHistory(limit: number = 100, offset: number = 0): Promise<{
-    history: BodyMeasurement[];
-    changes: {
-      chest: MeasurementChange | null;
-      waist: MeasurementChange | null;
-      hips: MeasurementChange | null;
-      arms: MeasurementChange | null;
-      thighs: MeasurementChange | null;
+    const updated: WeightEntry = {
+      ...entry,
+      weight,
+      notes,
+      updatedAt: new Date().toISOString(),
     };
-  }> {
+
+    await this.updateWeightLocally(updated);
+
     try {
-      // Try to fetch from server
-      try {
-        const response = await this.apiClient.get('/body/measurements', {
-          params: { limit, offset },
-        });
-
-        // Cache locally
-        for (const entry of response.data.history) {
-          await this.dbManager.insertBodyMeasurement(entry);
-        }
-
-        return {
-          history: response.data.history,
-          changes: response.data.changes,
-        };
-      } catch (error) {
-        // Offline - return local data
-        console.warn('Failed to fetch measurement history from server, using local cache', error);
-        const localHistory = await this.dbManager.getBodyMeasurementHistory(limit, offset);
-        const changes = this.calculateLocalMeasurementChanges(localHistory);
-
-        return {
-          history: localHistory,
-          changes,
-        };
-      }
+      const response = await this.apiClient.put<WeightEntry>(`/body/weight/${id}`, updated);
+      await this.markWeightAsSynced(id);
+      return response.data;
     } catch (error) {
-      console.error('Failed to get measurement history', error);
-      throw error;
+      console.warn('Failed to sync weight update, queued for later:', error);
+      await this.queueForSync('UPDATE', 'WEIGHT', id, updated);
+      return updated;
     }
   }
 
   /**
-   * Update a measurement entry (within 7 days)
+   * Delete weight entry (within 7 days)
    */
-  async updateMeasurement(
-    measurementId: string,
-    measurements: {
-      chest?: number;
-      waist?: number;
-      hips?: number;
-      arms?: number;
-      thighs?: number;
-    },
-    notes?: string
-  ): Promise<BodyMeasurement> {
+  async deleteWeight(id: string): Promise<void> {
+    const entry = await this.getWeightById(id);
+    if (!entry) throw new Error('Weight entry not found');
+
+    const createdDate = new Date(entry.createdAt);
+    const now = new Date();
+    const daysDiff = (now.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24);
+
+    if (daysDiff > EDIT_WINDOW_DAYS) {
+      throw new Error(`Cannot delete weight entry older than ${EDIT_WINDOW_DAYS} days`);
+    }
+
+    await this.deleteWeightLocally(id);
+
     try {
-      const now = new Date().toISOString();
-      const userId = await this.authService.getUserId();
-
-      // Update locally
-      const updated: BodyMeasurement = {
-        id: measurementId,
-        ...measurements,
-        notes,
-        recordedAt: new Date().toISOString(),
-        createdAt: new Date().toISOString(),
-        updatedAt: now,
-      };
-
-      await this.dbManager.updateBodyMeasurement(measurementId, updated);
-
-      // Queue for sync
-      await this.syncEngine.queueOperation(userId, 'UPDATE', 'MEASUREMENT', measurementId, JSON.stringify(updated));
-
-      // Try to sync
-      try {
-        const response = await this.apiClient.put(`/body/measurements/${measurementId}`, {
-          ...measurements,
-          notes,
-        });
-
-        return response.data;
-      } catch (error) {
-        console.warn('Failed to sync measurement update, will retry later', error);
-        return updated;
-      }
+      await this.apiClient.delete(`/body/weight/${id}`);
     } catch (error) {
-      console.error('Failed to update measurement', error);
-      throw error;
+      console.warn('Failed to sync weight deletion, queued for later:', error);
+      await this.queueForSync('DELETE', 'WEIGHT', id, {});
     }
   }
 
-  /**
-   * Delete a measurement entry (within 7 days)
-   */
-  async deleteMeasurement(measurementId: string): Promise<void> {
+  private async getWeightById(id: string): Promise<WeightEntry | null> {
+    if (!this.db) return null;
+
     try {
-      const userId = await this.authService.getUserId();
+      const result = await this.db.executeSql(
+        `SELECT * FROM ${WEIGHT_TABLE} WHERE id = ? AND userId = ?`,
+        [id, this.currentUserId]
+      );
 
-      // Delete locally
-      await this.dbManager.deleteBodyMeasurement(measurementId);
-
-      // Queue for sync
-      await this.syncEngine.queueOperation(userId, 'DELETE', 'MEASUREMENT', measurementId, '{}');
-
-      // Try to sync
-      try {
-        await this.apiClient.delete(`/body/measurements/${measurementId}`);
-      } catch (error) {
-        console.warn('Failed to sync measurement deletion, will retry later', error);
-      }
+      if (result[0].rows.length === 0) return null;
+      return result[0].rows.item(0);
     } catch (error) {
-      console.error('Failed to delete measurement', error);
-      throw error;
-    }
-  }
-
-  // MARK: - Trend Calculations
-
-  /**
-   * Calculate weight trend line locally
-   */
-  private calculateLocalWeightTrendLine(weights: BodyWeight[]): TrendLine | null {
-    if (weights.length < 2) {
+      console.error('Failed to get weight by id:', error);
       return null;
     }
+  }
 
-    const startValue = weights[weights.length - 1].weight;
-    const endValue = weights[0].weight;
-    const startDate = weights[weights.length - 1].recordedAt;
-    const endDate = weights[0].recordedAt;
+  private async storeWeightLocally(entry: WeightEntry): Promise<void> {
+    if (!this.db) return;
 
-    const changePercentage = ((endValue - startValue) / startValue) * 100;
-    let trend: 'increasing' | 'decreasing' | 'stable';
-
-    if (Math.abs(changePercentage) < 1) {
-      trend = 'stable';
-    } else if (changePercentage > 0) {
-      trend = 'increasing';
-    } else {
-      trend = 'decreasing';
+    try {
+      await this.db.executeSql(
+        `INSERT INTO ${WEIGHT_TABLE} 
+         (id, userId, weight, notes, recordedAt, createdAt, updatedAt, synced) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
+        [
+          entry.id,
+          entry.userId,
+          entry.weight,
+          entry.notes || null,
+          entry.recordedAt,
+          entry.createdAt,
+          entry.updatedAt,
+        ]
+      );
+    } catch (error) {
+      console.error('Failed to store weight locally:', error);
     }
+  }
 
-    return {
-      startDate,
-      endDate,
-      startValue,
-      endValue,
-      trend,
-      changePercentage: Math.round(changePercentage * 100) / 100,
-    };
+  private async updateWeightLocally(entry: WeightEntry): Promise<void> {
+    if (!this.db) return;
+
+    try {
+      await this.db.executeSql(
+        `UPDATE ${WEIGHT_TABLE} SET weight = ?, notes = ?, updatedAt = ?, synced = 0 WHERE id = ?`,
+        [entry.weight, entry.notes || null, entry.updatedAt, entry.id]
+      );
+    } catch (error) {
+      console.error('Failed to update weight locally:', error);
+    }
+  }
+
+  private async deleteWeightLocally(id: string): Promise<void> {
+    if (!this.db) return;
+
+    try {
+      await this.db.executeSql(
+        `DELETE FROM ${WEIGHT_TABLE} WHERE id = ? AND userId = ?`,
+        [id, this.currentUserId]
+      );
+    } catch (error) {
+      console.error('Failed to delete weight locally:', error);
+    }
+  }
+
+  private async cacheWeightLocally(entries: WeightEntry[]): Promise<void> {
+    if (!this.db) return;
+
+    try {
+      for (const entry of entries) {
+        await this.db.executeSql(
+          `INSERT OR REPLACE INTO ${WEIGHT_TABLE} 
+           (id, userId, weight, notes, recordedAt, createdAt, updatedAt, synced) 
+           VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
+          [
+            entry.id,
+            entry.userId,
+            entry.weight,
+            entry.notes || null,
+            entry.recordedAt,
+            entry.createdAt,
+            entry.updatedAt,
+          ]
+        );
+      }
+    } catch (error) {
+      console.error('Failed to cache weight locally:', error);
+    }
+  }
+
+  private async getWeightFromCache(startDate?: string, endDate?: string): Promise<WeightEntry[]> {
+    if (!this.db) return [];
+
+    try {
+      let query = `SELECT * FROM ${WEIGHT_TABLE} WHERE userId = ?`;
+      const params: any[] = [this.currentUserId];
+
+      if (startDate) {
+        query += ` AND recordedAt >= ?`;
+        params.push(startDate);
+      }
+
+      if (endDate) {
+        query += ` AND recordedAt <= ?`;
+        params.push(endDate);
+      }
+
+      query += ` ORDER BY recordedAt DESC`;
+
+      const result = await this.db.executeSql(query, params);
+
+      const entries: WeightEntry[] = [];
+      for (let i = 0; i < result[0].rows.length; i++) {
+        entries.push(result[0].rows.item(i));
+      }
+
+      return entries;
+    } catch (error) {
+      console.error('Failed to get weight from cache:', error);
+      return [];
+    }
+  }
+
+  private async markWeightAsSynced(id: string): Promise<void> {
+    if (!this.db) return;
+
+    try {
+      await this.db.executeSql(
+        `UPDATE ${WEIGHT_TABLE} SET synced = 1 WHERE id = ?`,
+        [id]
+      );
+    } catch (error) {
+      console.error('Failed to mark weight as synced:', error);
+    }
   }
 
   /**
-   * Calculate measurement changes locally
+   * Log a measurement entry
    */
-  private calculateLocalMeasurementChanges(measurements: BodyMeasurement[]): {
-    chest: MeasurementChange | null;
-    waist: MeasurementChange | null;
-    hips: MeasurementChange | null;
-    arms: MeasurementChange | null;
-    thighs: MeasurementChange | null;
-  } {
-    const calculateChange = (type: 'chest' | 'waist' | 'hips' | 'arms' | 'thighs'): MeasurementChange | null => {
-      const values = measurements
-        .map((m) => m[type])
-        .filter((v) => v !== undefined && v !== null) as number[];
-
-      if (values.length < 2) {
-        return null;
-      }
-
-      const current = values[0];
-      const previous = values[1];
-      const change = current - previous;
-      const changePercentage = (change / previous) * 100;
-
-      return {
-        current,
-        previous,
-        change: Math.round(change * 100) / 100,
-        changePercentage: Math.round(changePercentage * 100) / 100,
-      };
+  async logMeasurement(
+    chest?: number,
+    waist?: number,
+    hips?: number,
+    arms?: number,
+    thighs?: number,
+    notes?: string
+  ): Promise<MeasurementEntry> {
+    const entry: MeasurementEntry = {
+      id: uuid.v4() as string,
+      userId: this.currentUserId,
+      chest,
+      waist,
+      hips,
+      arms,
+      thighs,
+      notes,
+      recordedAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     };
 
-    return {
-      chest: calculateChange('chest'),
-      waist: calculateChange('waist'),
-      hips: calculateChange('hips'),
-      arms: calculateChange('arms'),
-      thighs: calculateChange('thighs'),
-    };
+    await this.storeMeasurementLocally(entry);
+
+    try {
+      const response = await this.apiClient.post<MeasurementEntry>('/body/measurements', entry);
+      await this.markMeasurementAsSynced(entry.id);
+      return response.data;
+    } catch (error) {
+      console.warn('Failed to sync measurement entry, queued for later:', error);
+      await this.queueForSync('CREATE', 'MEASUREMENT', entry.id, entry);
+      return entry;
+    }
   }
 
-  // MARK: - Progress Photos
+  /**
+   * Get measurement history
+   */
+  async getMeasurementHistory(startDate?: string, endDate?: string): Promise<MeasurementEntry[]> {
+    try {
+      const cacheKey = `measurement_history_${startDate}_${endDate}`;
+      const cached = this.cache.get(cacheKey);
+      if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+        return cached.data as MeasurementEntry[];
+      }
+
+      const params: any = {};
+      if (startDate) params.startDate = startDate;
+      if (endDate) params.endDate = endDate;
+
+      const response = await this.apiClient.get<MeasurementEntry[]>('/body/measurements', { params });
+      const data = response.data;
+
+      this.cache.set(cacheKey, { data, timestamp: Date.now() });
+      await this.cacheMeasurementLocally(data);
+
+      return data;
+    } catch (error) {
+      console.warn('Failed to fetch measurement history, using cached data:', error);
+      return this.getMeasurementFromCache(startDate, endDate);
+    }
+  }
+
+  /**
+   * Get measurement changes (current vs previous)
+   */
+  async getMeasurementChanges(): Promise<MeasurementChange[]> {
+    const entries = await this.getMeasurementHistory();
+    if (entries.length < 2) return [];
+
+    const latest = entries[0];
+    const previous = entries[1];
+
+    const changes: MeasurementChange[] = [];
+
+    const measurements = [
+      { key: 'chest', label: 'Chest' },
+      { key: 'waist', label: 'Waist' },
+      { key: 'hips', label: 'Hips' },
+      { key: 'arms', label: 'Arms' },
+      { key: 'thighs', label: 'Thighs' },
+    ];
+
+    for (const m of measurements) {
+      const currentVal = latest[m.key as keyof MeasurementEntry] as number | undefined;
+      const previousVal = previous[m.key as keyof MeasurementEntry] as number | undefined;
+
+      if (currentVal !== undefined && previousVal !== undefined) {
+        const change = currentVal - previousVal;
+        const changePercent = (change / previousVal) * 100;
+
+        changes.push({
+          measurement: m.label,
+          current: currentVal,
+          previous: previousVal,
+          change,
+          changePercent,
+        });
+      }
+    }
+
+    return changes;
+  }
+
+  /**
+   * Edit measurement entry (within 7 days)
+   */
+  async editMeasurement(
+    id: string,
+    chest?: number,
+    waist?: number,
+    hips?: number,
+    arms?: number,
+    thighs?: number,
+    notes?: string
+  ): Promise<MeasurementEntry> {
+    const entry = await this.getMeasurementById(id);
+    if (!entry) throw new Error('Measurement entry not found');
+
+    const createdDate = new Date(entry.createdAt);
+    const now = new Date();
+    const daysDiff = (now.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24);
+
+    if (daysDiff > EDIT_WINDOW_DAYS) {
+      throw new Error(`Cannot edit measurement entry older than ${EDIT_WINDOW_DAYS} days`);
+    }
+
+    const updated: MeasurementEntry = {
+      ...entry,
+      chest: chest !== undefined ? chest : entry.chest,
+      waist: waist !== undefined ? waist : entry.waist,
+      hips: hips !== undefined ? hips : entry.hips,
+      arms: arms !== undefined ? arms : entry.arms,
+      thighs: thighs !== undefined ? thighs : entry.thighs,
+      notes,
+      updatedAt: new Date().toISOString(),
+    };
+
+    await this.updateMeasurementLocally(updated);
+
+    try {
+      const response = await this.apiClient.put<MeasurementEntry>(`/body/measurements/${id}`, updated);
+      await this.markMeasurementAsSynced(id);
+      return response.data;
+    } catch (error) {
+      console.warn('Failed to sync measurement update, queued for later:', error);
+      await this.queueForSync('UPDATE', 'MEASUREMENT', id, updated);
+      return updated;
+    }
+  }
+
+  /**
+   * Delete measurement entry (within 7 days)
+   */
+  async deleteMeasurement(id: string): Promise<void> {
+    const entry = await this.getMeasurementById(id);
+    if (!entry) throw new Error('Measurement entry not found');
+
+    const createdDate = new Date(entry.createdAt);
+    const now = new Date();
+    const daysDiff = (now.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24);
+
+    if (daysDiff > EDIT_WINDOW_DAYS) {
+      throw new Error(`Cannot delete measurement entry older than ${EDIT_WINDOW_DAYS} days`);
+    }
+
+    await this.deleteMeasurementLocally(id);
+
+    try {
+      await this.apiClient.delete(`/body/measurements/${id}`);
+    } catch (error) {
+      console.warn('Failed to sync measurement deletion, queued for later:', error);
+      await this.queueForSync('DELETE', 'MEASUREMENT', id, {});
+    }
+  }
+
+  private async getMeasurementById(id: string): Promise<MeasurementEntry | null> {
+    if (!this.db) return null;
+
+    try {
+      const result = await this.db.executeSql(
+        `SELECT * FROM ${MEASUREMENT_TABLE} WHERE id = ? AND userId = ?`,
+        [id, this.currentUserId]
+      );
+
+      if (result[0].rows.length === 0) return null;
+      return result[0].rows.item(0);
+    } catch (error) {
+      console.error('Failed to get measurement by id:', error);
+      return null;
+    }
+  }
+
+  private async storeMeasurementLocally(entry: MeasurementEntry): Promise<void> {
+    if (!this.db) return;
+
+    try {
+      await this.db.executeSql(
+        `INSERT INTO ${MEASUREMENT_TABLE} 
+         (id, userId, chest, waist, hips, arms, thighs, notes, recordedAt, createdAt, updatedAt, synced) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+        [
+          entry.id,
+          entry.userId,
+          entry.chest || null,
+          entry.waist || null,
+          entry.hips || null,
+          entry.arms || null,
+          entry.thighs || null,
+          entry.notes || null,
+          entry.recordedAt,
+          entry.createdAt,
+          entry.updatedAt,
+        ]
+      );
+    } catch (error) {
+      console.error('Failed to store measurement locally:', error);
+    }
+  }
+
+  private async updateMeasurementLocally(entry: MeasurementEntry): Promise<void> {
+    if (!this.db) return;
+
+    try {
+      await this.db.executeSql(
+        `UPDATE ${MEASUREMENT_TABLE} 
+         SET chest = ?, waist = ?, hips = ?, arms = ?, thighs = ?, notes = ?, updatedAt = ?, synced = 0 
+         WHERE id = ?`,
+        [
+          entry.chest || null,
+          entry.waist || null,
+          entry.hips || null,
+          entry.arms || null,
+          entry.thighs || null,
+          entry.notes || null,
+          entry.updatedAt,
+          entry.id,
+        ]
+      );
+    } catch (error) {
+      console.error('Failed to update measurement locally:', error);
+    }
+  }
+
+  private async deleteMeasurementLocally(id: string): Promise<void> {
+    if (!this.db) return;
+
+    try {
+      await this.db.executeSql(
+        `DELETE FROM ${MEASUREMENT_TABLE} WHERE id = ? AND userId = ?`,
+        [id, this.currentUserId]
+      );
+    } catch (error) {
+      console.error('Failed to delete measurement locally:', error);
+    }
+  }
+
+  private async cacheMeasurementLocally(entries: MeasurementEntry[]): Promise<void> {
+    if (!this.db) return;
+
+    try {
+      for (const entry of entries) {
+        await this.db.executeSql(
+          `INSERT OR REPLACE INTO ${MEASUREMENT_TABLE} 
+           (id, userId, chest, waist, hips, arms, thighs, notes, recordedAt, createdAt, updatedAt, synced) 
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+          [
+            entry.id,
+            entry.userId,
+            entry.chest || null,
+            entry.waist || null,
+            entry.hips || null,
+            entry.arms || null,
+            entry.thighs || null,
+            entry.notes || null,
+            entry.recordedAt,
+            entry.createdAt,
+            entry.updatedAt,
+          ]
+        );
+      }
+    } catch (error) {
+      console.error('Failed to cache measurement locally:', error);
+    }
+  }
+
+  private async getMeasurementFromCache(startDate?: string, endDate?: string): Promise<MeasurementEntry[]> {
+    if (!this.db) return [];
+
+    try {
+      let query = `SELECT * FROM ${MEASUREMENT_TABLE} WHERE userId = ?`;
+      const params: any[] = [this.currentUserId];
+
+      if (startDate) {
+        query += ` AND recordedAt >= ?`;
+        params.push(startDate);
+      }
+
+      if (endDate) {
+        query += ` AND recordedAt <= ?`;
+        params.push(endDate);
+      }
+
+      query += ` ORDER BY recordedAt DESC`;
+
+      const result = await this.db.executeSql(query, params);
+
+      const entries: MeasurementEntry[] = [];
+      for (let i = 0; i < result[0].rows.length; i++) {
+        entries.push(result[0].rows.item(i));
+      }
+
+      return entries;
+    } catch (error) {
+      console.error('Failed to get measurement from cache:', error);
+      return [];
+    }
+  }
+
+  private async markMeasurementAsSynced(id: string): Promise<void> {
+    if (!this.db) return;
+
+    try {
+      await this.db.executeSql(
+        `UPDATE ${MEASUREMENT_TABLE} SET synced = 1 WHERE id = ?`,
+        [id]
+      );
+    } catch (error) {
+      console.error('Failed to mark measurement as synced:', error);
+    }
+  }
 
   /**
    * Upload a progress photo
    */
-  async uploadProgressPhoto(imageUrl: string, thumbnailUrl?: string, notes?: string, recordedAt?: string): Promise<ProgressPhoto> {
+  async uploadPhoto(imageUri: string, notes?: string): Promise<ProgressPhoto> {
     try {
-      const now = new Date().toISOString();
-      const recordedAtValue = recordedAt || now;
-      const userId = await this.authService.getUserId();
+      // Compress image before upload
+      const compressedUri = await this.compressImage(imageUri);
 
-      // Create local entry
-      const localEntry: ProgressPhoto = {
-        id: `photo_${Date.now()}`,
-        imageUrl,
-        thumbnailUrl,
-        notes,
-        recordedAt: recordedAtValue,
-        createdAt: now,
-        updatedAt: now,
-      };
+      const formData = new FormData();
+      formData.append('file', {
+        uri: compressedUri,
+        type: 'image/jpeg',
+        name: `photo_${Date.now()}.jpg`,
+      } as any);
+      formData.append('notes', notes || '');
 
-      // Store locally
-      await this.dbManager.insertProgressPhoto(localEntry);
-
-      // Queue for sync
-      await this.syncEngine.queueOperation(userId, 'CREATE', 'PHOTO', localEntry.id, JSON.stringify(localEntry));
-
-      // Try to sync immediately
-      try {
-        const response = await this.apiClient.post('/body/photos', {
-          imageUrl,
-          thumbnailUrl,
-          notes,
-          recordedAt: recordedAtValue,
-        });
-
-        // Update with server ID
-        const serverEntry = response.data;
-        await this.dbManager.updateProgressPhoto(localEntry.id, serverEntry);
-
-        return serverEntry;
-      } catch (error) {
-        // Offline - return local entry
-        console.warn('Failed to sync photo upload, will retry later', error);
-        return localEntry;
-      }
-    } catch (error) {
-      console.error('Failed to upload progress photo', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Get progress photo gallery
-   */
-  async getProgressPhotoGallery(limit: number = 100, offset: number = 0): Promise<ProgressPhoto[]> {
-    try {
-      // Try to fetch from server
-      try {
-        const response = await this.apiClient.get('/body/photos', {
-          params: { limit, offset },
-        });
-
-        // Cache locally
-        for (const photo of response.data.photos) {
-          await this.dbManager.insertProgressPhoto(photo);
+      const response = await this.apiClient.post<ProgressPhoto>(
+        '/body/photos',
+        formData,
+        {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
         }
+      );
 
-        return response.data.photos;
-      } catch (error) {
-        // Offline - return local data
-        console.warn('Failed to fetch photo gallery from server, using local cache', error);
-        return await this.dbManager.getProgressPhotoGallery(limit, offset);
-      }
+      const photo = response.data;
+      await this.storePhotoLocally(photo);
+      return photo;
     } catch (error) {
-      console.error('Failed to get progress photo gallery', error);
-      throw error;
+      console.warn('Failed to upload photo, queued for later:', error);
+      // Store locally for later sync
+      const photo: ProgressPhoto = {
+        id: uuid.v4() as string,
+        userId: this.currentUserId,
+        imageUrl: imageUri,
+        notes,
+        recordedAt: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+      };
+      await this.storePhotoLocally(photo);
+      await this.queueForSync('CREATE', 'PHOTO', photo.id, photo);
+      return photo;
     }
   }
 
   /**
-   * Get a specific progress photo
+   * Get photo gallery
    */
-  async getProgressPhoto(photoId: string): Promise<ProgressPhoto> {
+  async getPhotoGallery(limit: number = 50, offset: number = 0): Promise<ProgressPhoto[]> {
     try {
-      // Try to fetch from server
-      try {
-        const response = await this.apiClient.get(`/body/photos/${photoId}`);
-
-        // Cache locally
-        await this.dbManager.insertProgressPhoto(response.data);
-
-        return response.data;
-      } catch (error) {
-        // Offline - return local data
-        console.warn('Failed to fetch photo from server, using local cache', error);
-        return await this.dbManager.getProgressPhoto(photoId);
+      const cacheKey = `photo_gallery_${limit}_${offset}`;
+      const cached = this.cache.get(cacheKey);
+      if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+        return cached.data as ProgressPhoto[];
       }
+
+      const response = await this.apiClient.get<ProgressPhoto[]>('/body/photos', {
+        params: { limit, offset },
+      });
+
+      const data = response.data;
+      this.cache.set(cacheKey, { data, timestamp: Date.now() });
+      await this.cachePhotoLocally(data);
+
+      return data;
     } catch (error) {
-      console.error('Failed to get progress photo', error);
-      throw error;
+      console.warn('Failed to fetch photo gallery, using cached data:', error);
+      return this.getPhotoFromCache(limit, offset);
     }
+  }
+
+  /**
+   * Compare two photos side-by-side
+   */
+  async comparePhotos(beforePhotoId: string, afterPhotoId: string): Promise<PhotoComparison> {
+    const beforePhoto = await this.getPhotoById(beforePhotoId);
+    const afterPhoto = await this.getPhotoById(afterPhotoId);
+
+    if (!beforePhoto || !afterPhoto) {
+      throw new Error('One or both photos not found');
+    }
+
+    return {
+      beforePhoto,
+      afterPhoto,
+    };
   }
 
   /**
    * Delete a progress photo
    */
-  async deleteProgressPhoto(photoId: string): Promise<void> {
+  async deletePhoto(id: string): Promise<void> {
+    await this.deletePhotoLocally(id);
+
     try {
-      const userId = await this.authService.getUserId();
+      await this.apiClient.delete(`/body/photos/${id}`);
+    } catch (error) {
+      console.warn('Failed to sync photo deletion, queued for later:', error);
+      await this.queueForSync('DELETE', 'PHOTO', id, {});
+    }
+  }
 
-      // Delete locally
-      await this.dbManager.deleteProgressPhoto(photoId);
+  private async getPhotoById(id: string): Promise<ProgressPhoto | null> {
+    if (!this.db) return null;
 
-      // Queue for sync
-      await this.syncEngine.queueOperation(userId, 'DELETE', 'PHOTO', photoId, '{}');
+    try {
+      const result = await this.db.executeSql(
+        `SELECT * FROM ${PHOTO_TABLE} WHERE id = ? AND userId = ?`,
+        [id, this.currentUserId]
+      );
 
-      // Try to sync
-      try {
-        await this.apiClient.delete(`/body/photos/${photoId}`);
-      } catch (error) {
-        console.warn('Failed to sync photo deletion, will retry later', error);
+      if (result[0].rows.length === 0) return null;
+      return result[0].rows.item(0);
+    } catch (error) {
+      console.error('Failed to get photo by id:', error);
+      return null;
+    }
+  }
+
+  private async storePhotoLocally(photo: ProgressPhoto): Promise<void> {
+    if (!this.db) return;
+
+    try {
+      await this.db.executeSql(
+        `INSERT OR REPLACE INTO ${PHOTO_TABLE} 
+         (id, userId, imageUrl, thumbnailUrl, notes, recordedAt, createdAt, synced) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
+        [
+          photo.id,
+          photo.userId,
+          photo.imageUrl,
+          photo.thumbnailUrl || null,
+          photo.notes || null,
+          photo.recordedAt,
+          photo.createdAt,
+        ]
+      );
+    } catch (error) {
+      console.error('Failed to store photo locally:', error);
+    }
+  }
+
+  private async deletePhotoLocally(id: string): Promise<void> {
+    if (!this.db) return;
+
+    try {
+      await this.db.executeSql(
+        `DELETE FROM ${PHOTO_TABLE} WHERE id = ? AND userId = ?`,
+        [id, this.currentUserId]
+      );
+    } catch (error) {
+      console.error('Failed to delete photo locally:', error);
+    }
+  }
+
+  private async cachePhotoLocally(photos: ProgressPhoto[]): Promise<void> {
+    if (!this.db) return;
+
+    try {
+      for (const photo of photos) {
+        await this.db.executeSql(
+          `INSERT OR REPLACE INTO ${PHOTO_TABLE} 
+           (id, userId, imageUrl, thumbnailUrl, notes, recordedAt, createdAt, synced) 
+           VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
+          [
+            photo.id,
+            photo.userId,
+            photo.imageUrl,
+            photo.thumbnailUrl || null,
+            photo.notes || null,
+            photo.recordedAt,
+            photo.createdAt,
+          ]
+        );
       }
     } catch (error) {
-      console.error('Failed to delete progress photo', error);
-      throw error;
+      console.error('Failed to cache photos locally:', error);
+    }
+  }
+
+  private async getPhotoFromCache(limit: number, offset: number): Promise<ProgressPhoto[]> {
+    if (!this.db) return [];
+
+    try {
+      const result = await this.db.executeSql(
+        `SELECT * FROM ${PHOTO_TABLE} 
+         WHERE userId = ? 
+         ORDER BY recordedAt DESC 
+         LIMIT ? OFFSET ?`,
+        [this.currentUserId, limit, offset]
+      );
+
+      const photos: ProgressPhoto[] = [];
+      for (let i = 0; i < result[0].rows.length; i++) {
+        photos.push(result[0].rows.item(i));
+      }
+
+      return photos;
+    } catch (error) {
+      console.error('Failed to get photos from cache:', error);
+      return [];
+    }
+  }
+
+  private async compressImage(imageUri: string): Promise<string> {
+    // In a real implementation, this would use react-native-image-resizer or similar
+    // For now, we'll just return the original URI
+    // The backend will handle compression to max 5MB
+    return imageUri;
+  }
+
+  /**
+   * Queue an operation for sync
+   */
+  private async queueForSync(
+    operation: string,
+    entityType: string,
+    entityId: string,
+    payload: any
+  ): Promise<void> {
+    if (!this.db) return;
+
+    try {
+      await this.db.executeSql(
+        `INSERT INTO ${SYNC_QUEUE_TABLE} 
+         (id, operation, entityType, entityId, payload, status, createdAt) 
+         VALUES (?, ?, ?, ?, ?, 'PENDING', ?)`,
+        [
+          uuid.v4(),
+          operation,
+          entityType,
+          entityId,
+          JSON.stringify(payload),
+          new Date().toISOString(),
+        ]
+      );
+    } catch (error) {
+      console.error('Failed to queue operation for sync:', error);
     }
   }
 
   /**
-   * Get two photos for side-by-side comparison
+   * Sync pending operations with backend
    */
-  async getPhotoComparison(photoId1: string, photoId2: string): Promise<{ photo1: ProgressPhoto; photo2: ProgressPhoto }> {
+  async syncPendingOperations(): Promise<void> {
+    if (!this.db) return;
+
     try {
-      // Try to fetch from server
-      try {
-        const response = await this.apiClient.get('/body/photos/compare', {
-          params: { photoId1, photoId2 },
-        });
+      const result = await this.db.executeSql(
+        `SELECT * FROM ${SYNC_QUEUE_TABLE} WHERE status = 'PENDING' ORDER BY createdAt ASC`
+      );
 
-        // Cache locally
-        await this.dbManager.insertProgressPhoto(response.data.photo1);
-        await this.dbManager.insertProgressPhoto(response.data.photo2);
-
-        return response.data;
-      } catch (error) {
-        // Offline - return local data
-        console.warn('Failed to fetch photo comparison from server, using local cache', error);
-        const photo1 = await this.dbManager.getProgressPhoto(photoId1);
-        const photo2 = await this.dbManager.getProgressPhoto(photoId2);
-
-        return { photo1, photo2 };
+      for (let i = 0; i < result[0].rows.length; i++) {
+        const item = result[0].rows.item(i);
+        await this.processSyncItem(item);
       }
     } catch (error) {
-      console.error('Failed to get photo comparison', error);
-      throw error;
+      console.error('Failed to sync pending operations:', error);
+    }
+  }
+
+  private async processSyncItem(item: any): Promise<void> {
+    if (!this.db) return;
+
+    try {
+      const payload = JSON.parse(item.payload);
+
+      if (item.operation === 'CREATE') {
+        if (item.entityType === 'WEIGHT') {
+          await this.apiClient.post('/body/weight', payload);
+          await this.markWeightAsSynced(item.entityId);
+        } else if (item.entityType === 'MEASUREMENT') {
+          await this.apiClient.post('/body/measurements', payload);
+          await this.markMeasurementAsSynced(item.entityId);
+        } else if (item.entityType === 'PHOTO') {
+          // Photos are handled separately due to file upload
+          console.warn('Photo sync not implemented in processSyncItem');
+        }
+      } else if (item.operation === 'UPDATE') {
+        if (item.entityType === 'WEIGHT') {
+          await this.apiClient.put(`/body/weight/${item.entityId}`, payload);
+          await this.markWeightAsSynced(item.entityId);
+        } else if (item.entityType === 'MEASUREMENT') {
+          await this.apiClient.put(`/body/measurements/${item.entityId}`, payload);
+          await this.markMeasurementAsSynced(item.entityId);
+        }
+      } else if (item.operation === 'DELETE') {
+        if (item.entityType === 'WEIGHT') {
+          await this.apiClient.delete(`/body/weight/${item.entityId}`);
+        } else if (item.entityType === 'MEASUREMENT') {
+          await this.apiClient.delete(`/body/measurements/${item.entityId}`);
+        } else if (item.entityType === 'PHOTO') {
+          await this.apiClient.delete(`/body/photos/${item.entityId}`);
+        }
+      }
+
+      // Mark as synced
+      await this.db.executeSql(
+        `UPDATE ${SYNC_QUEUE_TABLE} SET status = 'SYNCED' WHERE id = ?`,
+        [item.id]
+      );
+    } catch (error) {
+      console.error('Failed to process sync item:', error);
+      // Increment retry count or mark as failed
+      await this.db.executeSql(
+        `UPDATE ${SYNC_QUEUE_TABLE} SET status = 'FAILED' WHERE id = ?`,
+        [item.id]
+      );
     }
   }
 
   /**
-   * Update progress photo notes
+   * Calculate trend line using simple moving average
    */
-  async updateProgressPhotoNotes(photoId: string, notes: string): Promise<ProgressPhoto> {
+  private calculateTrendLine(data: Array<{ date: string; weight: number }>): WeightTrendData[] {
+    if (data.length === 0) return [];
+
+    const windowSize = Math.min(7, Math.floor(data.length / 3)); // 7-day moving average
+    const result: WeightTrendData[] = [];
+
+    for (let i = 0; i < data.length; i++) {
+      const start = Math.max(0, i - windowSize + 1);
+      const window = data.slice(start, i + 1);
+      const average = window.reduce((sum, d) => sum + d.weight, 0) / window.length;
+
+      result.push({
+        date: data[i].date,
+        weight: data[i].weight,
+        trendValue: average,
+      });
+    }
+
+    return result;
+  }
+
+  /**
+   * Clear all cached data
+   */
+  async clearCache(): Promise<void> {
+    this.cache.clear();
+
+    if (!this.db) return;
+
     try {
-      const now = new Date().toISOString();
-      const userId = await this.authService.getUserId();
-
-      // Update locally
-      const photo = await this.dbManager.getProgressPhoto(photoId);
-      const updated: ProgressPhoto = {
-        ...photo,
-        notes,
-        updatedAt: now,
-      };
-
-      await this.dbManager.updateProgressPhoto(photoId, updated);
-
-      // Queue for sync
-      await this.syncEngine.queueOperation(userId, 'UPDATE', 'PHOTO', photoId, JSON.stringify(updated));
-
-      // Try to sync
-      try {
-        const response = await this.apiClient.put(`/body/photos/${photoId}`, { notes });
-
-        return response.data;
-      } catch (error) {
-        console.warn('Failed to sync photo notes update, will retry later', error);
-        return updated;
-      }
+      await this.db.executeSql(`DELETE FROM ${WEIGHT_TABLE}`);
+      await this.db.executeSql(`DELETE FROM ${MEASUREMENT_TABLE}`);
+      await this.db.executeSql(`DELETE FROM ${PHOTO_TABLE}`);
     } catch (error) {
-      console.error('Failed to update progress photo notes', error);
-      throw error;
+      console.error('Failed to clear body tracker cache:', error);
+    }
+  }
+
+  /**
+   * Close database connection
+   */
+  async close(): Promise<void> {
+    if (this.db) {
+      try {
+        await this.db.close();
+      } catch (error) {
+        console.error('Failed to close body tracker database:', error);
+      }
     }
   }
 }

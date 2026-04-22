@@ -1,434 +1,320 @@
-import DatabaseManager from '@database/DatabaseManager';
-import { SyncEngine } from './SyncEngine';
-import axios from 'axios';
-import Config from '@config/Config';
+import axios, { AxiosInstance } from 'axios';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import SQLite from 'react-native-sqlite-storage';
+import uuid from 'react-native-uuid';
 
 export interface LeaderboardEntry {
   rank: number;
   userId: string;
   name: string;
+  xp: number;
   level: number;
-  totalXP: number;
-  profilePictureUrl?: string;
 }
 
-export interface UserPosition {
+export interface LeaderboardPosition {
   rank: number;
-  userId: string;
-  totalXP: number;
+  totalUsers: number;
+  nearbyCompetitors: LeaderboardEntry[];
 }
 
-export interface NearbyCompetitors {
-  userPosition: UserPosition;
-  nearby: LeaderboardEntry[];
+export type LeaderboardType = 'global' | 'friends' | 'weekly';
+
+interface CacheEntry {
+  type: LeaderboardType;
+  data: LeaderboardEntry[];
+  timestamp: number;
 }
 
-export interface LeaderboardCache {
-  type: 'global' | 'friends' | 'weekly';
-  entries: LeaderboardEntry[];
-  lastUpdated: Date;
-  page: number;
-}
-
-export enum LeaderboardErrorType {
-  InvalidLeaderboardType = 'INVALID_LEADERBOARD_TYPE',
-  InvalidPagination = 'INVALID_PAGINATION',
-  DatabaseError = 'DATABASE_ERROR',
-  NetworkError = 'NETWORK_ERROR',
-  UserNotFound = 'USER_NOT_FOUND',
-}
-
-export class LeaderboardError extends Error {
-  constructor(
-    public type: LeaderboardErrorType,
-    message: string
-  ) {
-    super(message);
-    this.name = 'LeaderboardError';
-  }
-}
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+const ITEMS_PER_PAGE = 100;
+const DB_NAME = 'fitquest.db';
+const LEADERBOARD_TABLE = 'leaderboard_cache';
 
 export class LeaderboardService {
-  private static instance: LeaderboardService;
-  private dbManager = DatabaseManager;
-  private cacheExpiry = 5 * 60 * 1000; // 5 minutes
+  private apiClient: AxiosInstance;
+  private db: SQLite.SQLiteDatabase | null = null;
+  private currentUserId: string = '';
+  private cache: Map<string, CacheEntry> = new Map();
 
-  private constructor() {}
+  constructor(apiBaseUrl: string, userId: string) {
+    this.apiClient = axios.create({
+      baseURL: apiBaseUrl,
+      timeout: 10000,
+    });
+    this.currentUserId = userId;
+    this.initializeDatabase();
+  }
 
-  static getInstance(): LeaderboardService {
-    if (!LeaderboardService.instance) {
-      LeaderboardService.instance = new LeaderboardService();
+  private async initializeDatabase(): Promise<void> {
+    try {
+      this.db = await SQLite.openDatabase({
+        name: DB_NAME,
+        location: 'default',
+      });
+
+      await this.db.executeSql(`
+        CREATE TABLE IF NOT EXISTS ${LEADERBOARD_TABLE} (
+          id TEXT PRIMARY KEY,
+          type TEXT NOT NULL,
+          rank INTEGER NOT NULL,
+          userId TEXT NOT NULL,
+          name TEXT NOT NULL,
+          xp INTEGER NOT NULL,
+          level INTEGER NOT NULL,
+          timestamp INTEGER NOT NULL,
+          UNIQUE(type, rank)
+        )
+      `);
+    } catch (error) {
+      console.error('Failed to initialize leaderboard database:', error);
     }
-    return LeaderboardService.instance;
   }
 
   /**
-   * Get global leaderboard with pagination
-   * Displays top users by total XP
+   * Fetch leaderboard data from backend with pagination
    */
-  async getGlobalLeaderboard(
-    limit: number = 100,
-    offset: number = 0
+  async getLeaderboard(
+    type: LeaderboardType,
+    page: number = 1
   ): Promise<LeaderboardEntry[]> {
     try {
-      this.validatePaginationParams(limit, offset);
-
       // Check cache first
-      const cached = await this.getCachedLeaderboard('global', offset / limit);
-      if (cached) {
-        return cached;
+      const cacheKey = `${type}_page_${page}`;
+      const cached = this.cache.get(cacheKey);
+      if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+        return cached.data;
       }
 
-      // Fetch from API
-      const response = await axios.get(
-        `${Config.apiBaseUrl}/leaderboards/global`,
+      // Fetch from backend
+      const response = await this.apiClient.get<LeaderboardEntry[]>(
+        `/leaderboards/${type}`,
         {
-          params: { limit, offset },
-          headers: { Authorization: `Bearer ${await this.getAuthToken()}` },
+          params: {
+            limit: ITEMS_PER_PAGE,
+            offset: (page - 1) * ITEMS_PER_PAGE,
+          },
         }
       );
 
-      const entries: LeaderboardEntry[] = response.data.entries || [];
+      const data = response.data;
 
-      // Cache the result
-      await this.cacheLeaderboard('global', entries, offset / limit);
-
-      return entries;
-    } catch (error) {
-      if (this.isNetworkError(error)) {
-        throw new LeaderboardError(
-          LeaderboardErrorType.NetworkError,
-          `Failed to fetch global leaderboard: ${error}`
-        );
-      }
-      throw new LeaderboardError(
-        LeaderboardErrorType.DatabaseError,
-        `Failed to fetch global leaderboard: ${error}`
-      );
-    }
-  }
-
-  /**
-   * Get friends leaderboard with pagination
-   * Displays friends ranked by total XP
-   */
-  async getFriendsLeaderboard(
-    limit: number = 100,
-    offset: number = 0
-  ): Promise<LeaderboardEntry[]> {
-    try {
-      this.validatePaginationParams(limit, offset);
-
-      // Check cache first
-      const cached = await this.getCachedLeaderboard('friends', offset / limit);
-      if (cached) {
-        return cached;
-      }
-
-      // Fetch from API
-      const response = await axios.get(
-        `${Config.apiBaseUrl}/leaderboards/friends`,
-        {
-          params: { limit, offset },
-          headers: { Authorization: `Bearer ${await this.getAuthToken()}` },
-        }
-      );
-
-      const entries: LeaderboardEntry[] = response.data.entries || [];
-
-      // Cache the result
-      await this.cacheLeaderboard('friends', entries, offset / limit);
-
-      return entries;
-    } catch (error) {
-      if (this.isNetworkError(error)) {
-        throw new LeaderboardError(
-          LeaderboardErrorType.NetworkError,
-          `Failed to fetch friends leaderboard: ${error}`
-        );
-      }
-      throw new LeaderboardError(
-        LeaderboardErrorType.DatabaseError,
-        `Failed to fetch friends leaderboard: ${error}`
-      );
-    }
-  }
-
-  /**
-   * Get weekly leaderboard with pagination
-   * Displays top users by XP earned this week
-   */
-  async getWeeklyLeaderboard(
-    limit: number = 100,
-    offset: number = 0
-  ): Promise<LeaderboardEntry[]> {
-    try {
-      this.validatePaginationParams(limit, offset);
-
-      // Check cache first
-      const cached = await this.getCachedLeaderboard('weekly', offset / limit);
-      if (cached) {
-        return cached;
-      }
-
-      // Fetch from API
-      const response = await axios.get(
-        `${Config.apiBaseUrl}/leaderboards/weekly`,
-        {
-          params: { limit, offset },
-          headers: { Authorization: `Bearer ${await this.getAuthToken()}` },
-        }
-      );
-
-      const entries: LeaderboardEntry[] = response.data.entries || [];
-
-      // Cache the result
-      await this.cacheLeaderboard('weekly', entries, offset / limit);
-
-      return entries;
-    } catch (error) {
-      if (this.isNetworkError(error)) {
-        throw new LeaderboardError(
-          LeaderboardErrorType.NetworkError,
-          `Failed to fetch weekly leaderboard: ${error}`
-        );
-      }
-      throw new LeaderboardError(
-        LeaderboardErrorType.DatabaseError,
-        `Failed to fetch weekly leaderboard: ${error}`
-      );
-    }
-  }
-
-  /**
-   * Get user's position on a leaderboard
-   */
-  async getUserPosition(
-    userId: string,
-    leaderboardType: 'global' | 'weekly' | 'friends'
-  ): Promise<UserPosition> {
-    try {
-      this.validateLeaderboardType(leaderboardType);
-
-      // Fetch from API
-      const response = await axios.get(
-        `${Config.apiBaseUrl}/leaderboards/${leaderboardType}/position/${userId}`,
-        {
-          headers: { Authorization: `Bearer ${await this.getAuthToken()}` },
-        }
-      );
-
-      return {
-        rank: response.data.rank,
-        userId: response.data.userId,
-        totalXP: response.data.totalXP,
-      };
-    } catch (error) {
-      if (this.isNetworkError(error)) {
-        throw new LeaderboardError(
-          LeaderboardErrorType.NetworkError,
-          `Failed to fetch user position: ${error}`
-        );
-      }
-      throw new LeaderboardError(
-        LeaderboardErrorType.DatabaseError,
-        `Failed to fetch user position: ${error}`
-      );
-    }
-  }
-
-  /**
-   * Get nearby competitors (±5 positions from user)
-   */
-  async getNearbyCompetitors(
-    userId: string,
-    leaderboardType: 'global' | 'weekly'
-  ): Promise<NearbyCompetitors> {
-    try {
-      this.validateLeaderboardType(leaderboardType);
-
-      // Fetch from API
-      const response = await axios.get(
-        `${Config.apiBaseUrl}/leaderboards/${leaderboardType}/nearby/${userId}`,
-        {
-          headers: { Authorization: `Bearer ${await this.getAuthToken()}` },
-        }
-      );
-
-      return {
-        userPosition: {
-          rank: response.data.userPosition.rank,
-          userId: response.data.userPosition.userId,
-          totalXP: response.data.userPosition.totalXP,
-        },
-        nearby: response.data.nearby || [],
-      };
-    } catch (error) {
-      if (this.isNetworkError(error)) {
-        throw new LeaderboardError(
-          LeaderboardErrorType.NetworkError,
-          `Failed to fetch nearby competitors: ${error}`
-        );
-      }
-      throw new LeaderboardError(
-        LeaderboardErrorType.DatabaseError,
-        `Failed to fetch nearby competitors: ${error}`
-      );
-    }
-  }
-
-  /**
-   * Refresh leaderboard cache
-   */
-  async refreshLeaderboard(
-    leaderboardType: 'global' | 'friends' | 'weekly',
-    page: number = 0
-  ): Promise<LeaderboardEntry[]> {
-    try {
-      this.validateLeaderboardType(leaderboardType);
-
-      // Clear cache for this page
-      await this.clearLeaderboardCache(leaderboardType, page);
-
-      // Fetch fresh data
-      const limit = 100;
-      const offset = page * limit;
-
-      if (leaderboardType === 'global') {
-        return this.getGlobalLeaderboard(limit, offset);
-      } else if (leaderboardType === 'friends') {
-        return this.getFriendsLeaderboard(limit, offset);
-      } else {
-        return this.getWeeklyLeaderboard(limit, offset);
-      }
-    } catch (error) {
-      throw new LeaderboardError(
-        LeaderboardErrorType.DatabaseError,
-        `Failed to refresh leaderboard: ${error}`
-      );
-    }
-  }
-
-  /**
-   * Cache leaderboard entries locally
-   */
-  private async cacheLeaderboard(
-    type: 'global' | 'friends' | 'weekly',
-    entries: LeaderboardEntry[],
-    page: number
-  ): Promise<void> {
-    try {
-      const cacheKey = `leaderboard_${type}_${page}`;
-      const cacheData: LeaderboardCache = {
+      // Update cache
+      this.cache.set(cacheKey, {
         type,
-        entries,
-        lastUpdated: new Date(),
-        page,
-      };
+        data,
+        timestamp: Date.now(),
+      });
 
-      await this.dbManager.executeSql(
-        `INSERT OR REPLACE INTO cache (key, value, expires_at)
-         VALUES (?, ?, ?)`,
-        [cacheKey, JSON.stringify(cacheData), new Date(Date.now() + this.cacheExpiry).toISOString()]
-      );
+      // Store in local database
+      await this.cacheLeaderboardLocally(type, data);
+
+      return data;
     } catch (error) {
-      // Cache failures are non-fatal
+      console.warn(`Failed to fetch ${type} leaderboard, using cached data:`, error);
+      return this.getLeaderboardFromCache(type, page);
     }
   }
 
   /**
-   * Get cached leaderboard entries
+   * Get user's position on leaderboard with nearby competitors
    */
-  private async getCachedLeaderboard(
-    type: 'global' | 'friends' | 'weekly',
-    page: number
-  ): Promise<LeaderboardEntry[] | null> {
+  async getUserPosition(type: LeaderboardType): Promise<LeaderboardPosition | null> {
     try {
-      const cacheKey = `leaderboard_${type}_${page}`;
-      const result = await this.dbManager.executeSql(
-        `SELECT value FROM cache WHERE key = ? AND expires_at > ?`,
-        [cacheKey, new Date().toISOString()]
+      const response = await this.apiClient.get<LeaderboardPosition>(
+        `/leaderboards/${type}/position/${this.currentUserId}`
       );
 
-      if (result.rows.length === 0) {
-        return null;
+      return response.data;
+    } catch (error) {
+      console.warn(`Failed to fetch user position for ${type} leaderboard:`, error);
+      return this.getUserPositionFromCache(type);
+    }
+  }
+
+  /**
+   * Get paginated leaderboard with user position highlighted
+   */
+  async getLeaderboardWithUserHighlight(
+    type: LeaderboardType,
+    page: number = 1
+  ): Promise<{
+    entries: LeaderboardEntry[];
+    userPosition: LeaderboardPosition | null;
+    currentPage: number;
+    totalPages: number;
+  }> {
+    const entries = await this.getLeaderboard(type, page);
+    const userPosition = await this.getUserPosition(type);
+
+    return {
+      entries,
+      userPosition,
+      currentPage: page,
+      totalPages: Math.ceil((userPosition?.totalUsers || 0) / ITEMS_PER_PAGE),
+    };
+  }
+
+  /**
+   * Get nearby competitors (users ranked near current user)
+   */
+  async getNearbyCompetitors(type: LeaderboardType): Promise<LeaderboardEntry[]> {
+    try {
+      const position = await this.getUserPosition(type);
+      return position?.nearbyCompetitors || [];
+    } catch (error) {
+      console.warn(`Failed to fetch nearby competitors for ${type}:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Cache leaderboard data locally
+   */
+  private async cacheLeaderboardLocally(
+    type: LeaderboardType,
+    entries: LeaderboardEntry[]
+  ): Promise<void> {
+    if (!this.db) return;
+
+    try {
+      // Clear old entries for this type
+      await this.db.executeSql(
+        `DELETE FROM ${LEADERBOARD_TABLE} WHERE type = ?`,
+        [type]
+      );
+
+      // Insert new entries
+      const timestamp = Date.now();
+      for (const entry of entries) {
+        await this.db.executeSql(
+          `INSERT INTO ${LEADERBOARD_TABLE} 
+           (id, type, rank, userId, name, xp, level, timestamp) 
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            uuid.v4(),
+            type,
+            entry.rank,
+            entry.userId,
+            entry.name,
+            entry.xp,
+            entry.level,
+            timestamp,
+          ]
+        );
+      }
+    } catch (error) {
+      console.error('Failed to cache leaderboard locally:', error);
+    }
+  }
+
+  /**
+   * Retrieve leaderboard from local cache
+   */
+  private async getLeaderboardFromCache(
+    type: LeaderboardType,
+    page: number
+  ): Promise<LeaderboardEntry[]> {
+    if (!this.db) return [];
+
+    try {
+      const offset = (page - 1) * ITEMS_PER_PAGE;
+      const result = await this.db.executeSql(
+        `SELECT rank, userId, name, xp, level FROM ${LEADERBOARD_TABLE} 
+         WHERE type = ? 
+         ORDER BY rank ASC 
+         LIMIT ? OFFSET ?`,
+        [type, ITEMS_PER_PAGE, offset]
+      );
+
+      const entries: LeaderboardEntry[] = [];
+      for (let i = 0; i < result[0].rows.length; i++) {
+        entries.push(result[0].rows.item(i));
       }
 
-      const cacheData: LeaderboardCache = JSON.parse(result.rows.item(0).value);
-      return cacheData.entries;
+      return entries;
     } catch (error) {
+      console.error('Failed to retrieve leaderboard from cache:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Retrieve user position from local cache
+   */
+  private async getUserPositionFromCache(
+    type: LeaderboardType
+  ): Promise<LeaderboardPosition | null> {
+    if (!this.db) return null;
+
+    try {
+      // Get user's rank
+      const rankResult = await this.db.executeSql(
+        `SELECT rank FROM ${LEADERBOARD_TABLE} 
+         WHERE type = ? AND userId = ?`,
+        [type, this.currentUserId]
+      );
+
+      if (rankResult[0].rows.length === 0) return null;
+
+      const userRank = rankResult[0].rows.item(0).rank;
+
+      // Get total users
+      const totalResult = await this.db.executeSql(
+        `SELECT COUNT(*) as count FROM ${LEADERBOARD_TABLE} WHERE type = ?`,
+        [type]
+      );
+
+      const totalUsers = totalResult[0].rows.item(0).count;
+
+      // Get nearby competitors (5 above, 5 below)
+      const nearbyResult = await this.db.executeSql(
+        `SELECT rank, userId, name, xp, level FROM ${LEADERBOARD_TABLE} 
+         WHERE type = ? AND rank BETWEEN ? AND ? 
+         ORDER BY rank ASC`,
+        [type, Math.max(1, userRank - 5), userRank + 5]
+      );
+
+      const nearbyCompetitors: LeaderboardEntry[] = [];
+      for (let i = 0; i < nearbyResult[0].rows.length; i++) {
+        nearbyCompetitors.push(nearbyResult[0].rows.item(i));
+      }
+
+      return {
+        rank: userRank,
+        totalUsers,
+        nearbyCompetitors,
+      };
+    } catch (error) {
+      console.error('Failed to retrieve user position from cache:', error);
       return null;
     }
   }
 
   /**
-   * Clear leaderboard cache
+   * Clear all cached data
    */
-  private async clearLeaderboardCache(
-    type: 'global' | 'friends' | 'weekly',
-    page: number
-  ): Promise<void> {
+  async clearCache(): Promise<void> {
+    this.cache.clear();
+
+    if (!this.db) return;
+
     try {
-      const cacheKey = `leaderboard_${type}_${page}`;
-      await this.dbManager.executeSql(
-        `DELETE FROM cache WHERE key = ?`,
-        [cacheKey]
-      );
+      await this.db.executeSql(`DELETE FROM ${LEADERBOARD_TABLE}`);
     } catch (error) {
-      // Cache clearing failures are non-fatal
+      console.error('Failed to clear leaderboard cache:', error);
     }
   }
 
   /**
-   * Validate leaderboard type
+   * Close database connection
    */
-  private validateLeaderboardType(type: string): void {
-    if (!['global', 'friends', 'weekly'].includes(type)) {
-      throw new LeaderboardError(
-        LeaderboardErrorType.InvalidLeaderboardType,
-        `Invalid leaderboard type: ${type}`
-      );
+  async close(): Promise<void> {
+    if (this.db) {
+      try {
+        await this.db.close();
+      } catch (error) {
+        console.error('Failed to close leaderboard database:', error);
+      }
     }
-  }
-
-  /**
-   * Validate pagination parameters
-   */
-  private validatePaginationParams(limit: number, offset: number): void {
-    if (limit < 1 || limit > 1000) {
-      throw new LeaderboardError(
-        LeaderboardErrorType.InvalidPagination,
-        'Limit must be between 1 and 1000'
-      );
-    }
-
-    if (offset < 0) {
-      throw new LeaderboardError(
-        LeaderboardErrorType.InvalidPagination,
-        'Offset must be non-negative'
-      );
-    }
-  }
-
-  /**
-   * Get auth token from secure storage
-   */
-  private async getAuthToken(): Promise<string> {
-    // This would be implemented to retrieve from secure storage
-    return 'token';
-  }
-
-  /**
-   * Check if error is a network error
-   */
-  private isNetworkError(error: any): boolean {
-    return error instanceof Error && (
-      error.message.includes('Network') ||
-      error.message.includes('ECONNREFUSED') ||
-      error.message.includes('timeout') ||
-      error.message.includes('ERR_')
-    );
   }
 }
-
-export default LeaderboardService.getInstance();

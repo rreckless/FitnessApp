@@ -1,416 +1,373 @@
-import DatabaseManager from '@database/DatabaseManager';
-import { SyncEngine } from './SyncEngine';
-import axios from 'axios';
-import Config from '@config/Config';
+import axios, { AxiosInstance } from 'axios';
+import SQLite from 'react-native-sqlite-storage';
+import uuid from 'react-native-uuid';
 
 export type ActivityType =
-  | 'WORKOUT_COMPLETED'
-  | 'LEVEL_UP'
-  | 'ACHIEVEMENT_UNLOCKED'
-  | 'STREAK_MILESTONE'
-  | 'FRIEND_ADDED';
+  | 'workout_completed'
+  | 'level_up'
+  | 'achievement_unlocked'
+  | 'streak_milestone'
+  | 'friend_added';
 
 export interface ActivityFeedEntry {
   id: string;
   userId: string;
   userName: string;
   activityType: ActivityType;
-  relatedEntityId?: string;
-  metadata: Record<string, any>;
-  createdAt: Date;
-  profilePictureUrl?: string;
+  description: string;
+  metadata?: Record<string, any>;
+  createdAt: number;
+  isMilestone?: boolean;
 }
 
-export interface ActivityFeedPage {
-  entries: ActivityFeedEntry[];
-  total: number;
-  page: number;
-  pageSize: number;
+interface CacheEntry {
+  data: ActivityFeedEntry[];
+  timestamp: number;
 }
 
-export enum ActivityFeedErrorType {
-  InvalidPagination = 'INVALID_PAGINATION',
-  DatabaseError = 'DATABASE_ERROR',
-  NetworkError = 'NETWORK_ERROR',
-  InvalidActivityType = 'INVALID_ACTIVITY_TYPE',
-}
-
-export class ActivityFeedError extends Error {
-  constructor(
-    public type: ActivityFeedErrorType,
-    message: string
-  ) {
-    super(message);
-    this.name = 'ActivityFeedError';
-  }
-}
+const CACHE_DURATION = 2 * 60 * 1000; // 2 minutes
+const ITEMS_PER_PAGE = 50;
+const DB_NAME = 'fitquest.db';
+const ACTIVITY_FEED_TABLE = 'activity_feed_cache';
 
 export class ActivityFeedService {
-  private static instance: ActivityFeedService;
-  private dbManager = DatabaseManager;
-  private syncEngine: any;
-  private cacheExpiry = 5 * 60 * 1000; // 5 minutes
+  private apiClient: AxiosInstance;
+  private db: SQLite.SQLiteDatabase | null = null;
+  private currentUserId: string = '';
+  private cache: Map<string, CacheEntry> = new Map();
 
-  private constructor() {
-    try {
-      this.syncEngine = SyncEngine;
-    } catch (e) {
-      // SyncEngine may not be available in tests
-      this.syncEngine = null;
-    }
+  constructor(apiBaseUrl: string, userId: string) {
+    this.apiClient = axios.create({
+      baseURL: apiBaseUrl,
+      timeout: 10000,
+    });
+    this.currentUserId = userId;
+    this.initializeDatabase();
   }
 
-  static getInstance(): ActivityFeedService {
-    if (!ActivityFeedService.instance) {
-      ActivityFeedService.instance = new ActivityFeedService();
+  private async initializeDatabase(): Promise<void> {
+    try {
+      this.db = await SQLite.openDatabase({
+        name: DB_NAME,
+        location: 'default',
+      });
+
+      await this.db.executeSql(`
+        CREATE TABLE IF NOT EXISTS ${ACTIVITY_FEED_TABLE} (
+          id TEXT PRIMARY KEY,
+          userId TEXT NOT NULL,
+          userName TEXT NOT NULL,
+          activityType TEXT NOT NULL,
+          description TEXT NOT NULL,
+          metadata TEXT,
+          createdAt INTEGER NOT NULL,
+          isMilestone INTEGER NOT NULL,
+          timestamp INTEGER NOT NULL
+        )
+      `);
+
+      // Create index for faster queries
+      await this.db.executeSql(`
+        CREATE INDEX IF NOT EXISTS idx_activity_created_at 
+        ON ${ACTIVITY_FEED_TABLE}(createdAt DESC)
+      `);
+    } catch (error) {
+      console.error('Failed to initialize activity feed database:', error);
     }
-    return ActivityFeedService.instance;
   }
 
   /**
-   * Get activity feed with pagination
-   * Displays activities from friends in reverse chronological order
+   * Fetch activity feed with pagination
    */
-  async getActivityFeed(page: number = 1, pageSize: number = 50): Promise<ActivityFeedPage> {
+  async getActivityFeed(page: number = 1): Promise<ActivityFeedEntry[]> {
     try {
-      this.validatePaginationParams(page, pageSize);
-
-      // Check cache first
-      const cached = await this.getCachedActivityFeed(page, pageSize);
-      if (cached) {
-        return cached;
+      const cacheKey = `feed_page_${page}`;
+      const cached = this.cache.get(cacheKey);
+      if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+        return cached.data;
       }
 
-      // Fetch from API
-      const response = await axios.get(
-        `${Config.apiBaseURL}/activity-feed`,
+      const response = await this.apiClient.get<ActivityFeedEntry[]>(
+        '/activity-feed',
         {
-          params: { page, pageSize },
-          headers: { Authorization: `Bearer ${await this.getAuthToken()}` },
+          params: {
+            limit: ITEMS_PER_PAGE,
+            offset: (page - 1) * ITEMS_PER_PAGE,
+          },
         }
       );
 
-      const entries: ActivityFeedEntry[] = (response.data.entries || []).map((e: any) => ({
-        id: e.id,
-        userId: e.userId,
-        userName: e.userName,
-        activityType: e.activityType,
-        relatedEntityId: e.relatedEntityId,
-        metadata: e.metadata || {},
-        createdAt: new Date(e.createdAt),
-        profilePictureUrl: e.profilePictureUrl,
-      }));
+      const data = response.data;
 
-      const result: ActivityFeedPage = {
-        entries,
-        total: response.data.total || 0,
-        page,
-        pageSize,
-      };
+      // Update cache
+      this.cache.set(cacheKey, {
+        data,
+        timestamp: Date.now(),
+      });
 
-      // Cache the result
-      await this.cacheActivityFeed(result);
+      // Store in local database
+      await this.cacheActivityFeed(data);
 
-      // Store entries locally for offline access
-      await this.storeEntriesLocally(entries);
-
-      return result;
+      return data;
     } catch (error) {
-      // Check if it's a network error
-      const isNetworkError = error instanceof Error && (
-        error.message.includes('Network') ||
-        error.message.includes('ECONNREFUSED') ||
-        error.message.includes('timeout')
-      );
-
-      if (isNetworkError) {
-        // Fall back to local cache on network error
-        return this.getActivityFeedFromCache(page, pageSize);
-      }
-      throw new ActivityFeedError(
-        ActivityFeedErrorType.NetworkError,
-        `Failed to fetch activity feed: ${error}`
-      );
+      console.warn('Failed to fetch activity feed, using cached data:', error);
+      return this.getActivityFeedFromCache(page);
     }
   }
 
   /**
-   * Get activity feed from local cache (offline support)
+   * Get all cached activity feed entries (for offline support)
    */
-  private async getActivityFeedFromCache(
-    page: number,
-    pageSize: number
-  ): Promise<ActivityFeedPage> {
-    try {
-      const offset = (page - 1) * pageSize;
+  async getCachedActivityFeed(): Promise<ActivityFeedEntry[]> {
+    if (!this.db) return [];
 
-      const result = await this.dbManager.executeSql(
-        `SELECT id, user_id, user_name, activity_type, related_entity_id, metadata, created_at, profile_picture_url
-         FROM activity_feed
-         ORDER BY created_at DESC
-         LIMIT ? OFFSET ?`,
-        [pageSize, offset]
+    try {
+      const result = await this.db.executeSql(
+        `SELECT id, userId, userName, activityType, description, metadata, createdAt, isMilestone 
+         FROM ${ACTIVITY_FEED_TABLE} 
+         ORDER BY createdAt DESC 
+         LIMIT 500`
       );
 
       const entries: ActivityFeedEntry[] = [];
-      for (let i = 0; i < result.rows.length; i++) {
-        const row = result.rows.item(i);
+      for (let i = 0; i < result[0].rows.length; i++) {
+        const row = result[0].rows.item(i);
         entries.push({
-          id: row.id,
-          userId: row.user_id,
-          userName: row.user_name,
-          activityType: row.activity_type,
-          relatedEntityId: row.related_entity_id,
-          metadata: JSON.parse(row.metadata || '{}'),
-          createdAt: new Date(row.created_at),
-          profilePictureUrl: row.profile_picture_url,
+          ...row,
+          metadata: row.metadata ? JSON.parse(row.metadata) : undefined,
+          isMilestone: row.isMilestone === 1,
         });
       }
 
-      // Get total count
-      const countResult = await this.dbManager.executeSql(
-        `SELECT COUNT(*) as count FROM activity_feed`
-      );
-
-      const total = countResult.rows.item(0).count;
-
-      return {
-        entries,
-        total,
-        page,
-        pageSize,
-      };
+      return entries;
     } catch (error) {
-      throw new ActivityFeedError(
-        ActivityFeedErrorType.DatabaseError,
-        `Failed to fetch activity feed from cache: ${error}`
-      );
+      console.error('Failed to retrieve cached activity feed:', error);
+      return [];
     }
   }
 
   /**
-   * Create a local activity entry (for offline support)
-   * This is called when a user completes an action locally
+   * Get activity feed entries by type
    */
-  async createLocalActivityEntry(
-    userId: string,
-    userName: string,
-    activityType: ActivityType,
-    metadata: Record<string, any>,
-    relatedEntityId?: string,
-    profilePictureUrl?: string
-  ): Promise<ActivityFeedEntry> {
+  async getActivityFeedByType(
+    type: ActivityType,
+    page: number = 1
+  ): Promise<ActivityFeedEntry[]> {
     try {
-      this.validateActivityType(activityType);
-
-      const id = `activity_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      const now = new Date();
-
-      const entry: ActivityFeedEntry = {
-        id,
-        userId,
-        userName,
-        activityType,
-        relatedEntityId,
-        metadata,
-        createdAt: now,
-        profilePictureUrl,
-      };
-
-      // Store locally
-      await this.dbManager.executeSql(
-        `INSERT INTO activity_feed (id, user_id, user_name, activity_type, related_entity_id, metadata, created_at, profile_picture_url, is_local)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-        [
-          id,
-          userId,
-          userName,
-          activityType,
-          relatedEntityId || null,
-          JSON.stringify(metadata),
-          now.toISOString(),
-          profilePictureUrl || null,
-        ]
-      );
-
-      // Queue for sync
-      if (this.syncEngine) {
-        await this.syncEngine.queueOperation({
-          operation: 'CREATE',
-          entityType: 'ACTIVITY_FEED_ENTRY',
-          entityId: id,
-          payload: JSON.stringify(entry),
-        });
+      const cacheKey = `feed_${type}_page_${page}`;
+      const cached = this.cache.get(cacheKey);
+      if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+        return cached.data;
       }
 
-      return entry;
-    } catch (error) {
-      if (error instanceof ActivityFeedError) {
-        throw error;
-      }
-      throw new ActivityFeedError(
-        ActivityFeedErrorType.DatabaseError,
-        `Failed to create activity entry: ${error}`
+      const response = await this.apiClient.get<ActivityFeedEntry[]>(
+        '/activity-feed',
+        {
+          params: {
+            type,
+            limit: ITEMS_PER_PAGE,
+            offset: (page - 1) * ITEMS_PER_PAGE,
+          },
+        }
       );
+
+      const data = response.data;
+
+      // Update cache
+      this.cache.set(cacheKey, {
+        data,
+        timestamp: Date.now(),
+      });
+
+      // Store in local database
+      await this.cacheActivityFeed(data);
+
+      return data;
+    } catch (error) {
+      console.warn(`Failed to fetch ${type} activity feed, using cached data:`, error);
+      return this.getActivityFeedByTypeFromCache(type, page);
     }
   }
 
   /**
-   * Refresh activity feed cache
+   * Get milestone activities (highlighted entries)
    */
-  async refreshActivityFeed(page: number = 1, pageSize: number = 50): Promise<ActivityFeedPage> {
+  async getMilestoneActivities(): Promise<ActivityFeedEntry[]> {
     try {
-      this.validatePaginationParams(page, pageSize);
-
-      // Clear cache
-      await this.clearActivityFeedCache(page);
-
-      // Fetch fresh data
-      return this.getActivityFeed(page, pageSize);
-    } catch (error) {
-      throw new ActivityFeedError(
-        ActivityFeedErrorType.DatabaseError,
-        `Failed to refresh activity feed: ${error}`
+      const response = await this.apiClient.get<ActivityFeedEntry[]>(
+        '/activity-feed/milestones'
       );
+
+      const data = response.data;
+
+      // Store in local database
+      await this.cacheActivityFeed(data);
+
+      return data;
+    } catch (error) {
+      console.warn('Failed to fetch milestone activities, using cached data:', error);
+      return this.getMilestoneActivitiesFromCache();
     }
   }
 
   /**
-   * Cache activity feed page
+   * Cache activity feed entries locally
    */
-  private async cacheActivityFeed(page: ActivityFeedPage): Promise<void> {
+  private async cacheActivityFeed(entries: ActivityFeedEntry[]): Promise<void> {
+    if (!this.db) return;
+
     try {
-      const cacheKey = `activity_feed_${page.page}_${page.pageSize}`;
-      const cacheData = {
-        ...page,
-        cachedAt: new Date().toISOString(),
-      };
-
-      await this.dbManager.executeSql(
-        `INSERT OR REPLACE INTO cache (key, value, expires_at)
-         VALUES (?, ?, ?)`,
-        [
-          cacheKey,
-          JSON.stringify(cacheData),
-          new Date(Date.now() + this.cacheExpiry).toISOString(),
-        ]
-      );
-    } catch (error) {
-      // Cache failures are non-fatal
-    }
-  }
-
-  /**
-   * Get cached activity feed page
-   */
-  private async getCachedActivityFeed(
-    page: number,
-    pageSize: number
-  ): Promise<ActivityFeedPage | null> {
-    try {
-      const cacheKey = `activity_feed_${page}_${pageSize}`;
-      const result = await this.dbManager.executeSql(
-        `SELECT value FROM cache WHERE key = ? AND expires_at > ?`,
-        [cacheKey, new Date().toISOString()]
-      );
-
-      if (result.rows.length === 0) {
-        return null;
-      }
-
-      return JSON.parse(result.rows.item(0).value);
-    } catch (error) {
-      return null;
-    }
-  }
-
-  /**
-   * Clear activity feed cache
-   */
-  private async clearActivityFeedCache(page: number): Promise<void> {
-    try {
-      const cacheKey = `activity_feed_${page}_%`;
-      await this.dbManager.executeSql(
-        `DELETE FROM cache WHERE key LIKE ?`,
-        [cacheKey]
-      );
-    } catch (error) {
-      // Cache clearing failures are non-fatal
-    }
-  }
-
-  /**
-   * Store activity entries locally
-   */
-  private async storeEntriesLocally(entries: ActivityFeedEntry[]): Promise<void> {
-    try {
+      const timestamp = Date.now();
       for (const entry of entries) {
-        await this.dbManager.executeSql(
-          `INSERT OR REPLACE INTO activity_feed (id, user_id, user_name, activity_type, related_entity_id, metadata, created_at, profile_picture_url, is_local)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+        await this.db.executeSql(
+          `INSERT OR REPLACE INTO ${ACTIVITY_FEED_TABLE} 
+           (id, userId, userName, activityType, description, metadata, createdAt, isMilestone, timestamp) 
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             entry.id,
             entry.userId,
             entry.userName,
             entry.activityType,
-            entry.relatedEntityId || null,
-            JSON.stringify(entry.metadata),
-            entry.createdAt.toISOString(),
-            entry.profilePictureUrl || null,
+            entry.description,
+            entry.metadata ? JSON.stringify(entry.metadata) : null,
+            entry.createdAt,
+            entry.isMilestone ? 1 : 0,
+            timestamp,
           ]
         );
       }
     } catch (error) {
-      // Non-fatal
+      console.error('Failed to cache activity feed:', error);
     }
   }
 
   /**
-   * Validate pagination parameters
+   * Retrieve activity feed from local cache
    */
-  private validatePaginationParams(page: number, pageSize: number): void {
-    if (page < 1) {
-      throw new ActivityFeedError(
-        ActivityFeedErrorType.InvalidPagination,
-        'Page must be >= 1'
-      );
-    }
+  private async getActivityFeedFromCache(page: number): Promise<ActivityFeedEntry[]> {
+    if (!this.db) return [];
 
-    if (pageSize < 1 || pageSize > 100) {
-      throw new ActivityFeedError(
-        ActivityFeedErrorType.InvalidPagination,
-        'Page size must be between 1 and 100'
+    try {
+      const offset = (page - 1) * ITEMS_PER_PAGE;
+      const result = await this.db.executeSql(
+        `SELECT id, userId, userName, activityType, description, metadata, createdAt, isMilestone 
+         FROM ${ACTIVITY_FEED_TABLE} 
+         ORDER BY createdAt DESC 
+         LIMIT ? OFFSET ?`,
+        [ITEMS_PER_PAGE, offset]
       );
-    }
-  }
 
-  /**
-   * Validate activity type
-   */
-  private validateActivityType(type: string): void {
-    const validTypes: ActivityType[] = [
-      'WORKOUT_COMPLETED',
-      'LEVEL_UP',
-      'ACHIEVEMENT_UNLOCKED',
-      'STREAK_MILESTONE',
-      'FRIEND_ADDED',
-    ];
+      const entries: ActivityFeedEntry[] = [];
+      for (let i = 0; i < result[0].rows.length; i++) {
+        const row = result[0].rows.item(i);
+        entries.push({
+          ...row,
+          metadata: row.metadata ? JSON.parse(row.metadata) : undefined,
+          isMilestone: row.isMilestone === 1,
+        });
+      }
 
-    if (!validTypes.includes(type as ActivityType)) {
-      throw new ActivityFeedError(
-        ActivityFeedErrorType.InvalidActivityType,
-        `Invalid activity type: ${type}`
-      );
+      return entries;
+    } catch (error) {
+      console.error('Failed to retrieve activity feed from cache:', error);
+      return [];
     }
   }
 
   /**
-   * Get auth token from secure storage
+   * Retrieve activity feed by type from local cache
    */
-  private async getAuthToken(): Promise<string> {
-    // This would be implemented to retrieve from secure storage
-    return 'token';
+  private async getActivityFeedByTypeFromCache(
+    type: ActivityType,
+    page: number
+  ): Promise<ActivityFeedEntry[]> {
+    if (!this.db) return [];
+
+    try {
+      const offset = (page - 1) * ITEMS_PER_PAGE;
+      const result = await this.db.executeSql(
+        `SELECT id, userId, userName, activityType, description, metadata, createdAt, isMilestone 
+         FROM ${ACTIVITY_FEED_TABLE} 
+         WHERE activityType = ? 
+         ORDER BY createdAt DESC 
+         LIMIT ? OFFSET ?`,
+        [type, ITEMS_PER_PAGE, offset]
+      );
+
+      const entries: ActivityFeedEntry[] = [];
+      for (let i = 0; i < result[0].rows.length; i++) {
+        const row = result[0].rows.item(i);
+        entries.push({
+          ...row,
+          metadata: row.metadata ? JSON.parse(row.metadata) : undefined,
+          isMilestone: row.isMilestone === 1,
+        });
+      }
+
+      return entries;
+    } catch (error) {
+      console.error('Failed to retrieve activity feed by type from cache:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Retrieve milestone activities from local cache
+   */
+  private async getMilestoneActivitiesFromCache(): Promise<ActivityFeedEntry[]> {
+    if (!this.db) return [];
+
+    try {
+      const result = await this.db.executeSql(
+        `SELECT id, userId, userName, activityType, description, metadata, createdAt, isMilestone 
+         FROM ${ACTIVITY_FEED_TABLE} 
+         WHERE isMilestone = 1 
+         ORDER BY createdAt DESC 
+         LIMIT 50`
+      );
+
+      const entries: ActivityFeedEntry[] = [];
+      for (let i = 0; i < result[0].rows.length; i++) {
+        const row = result[0].rows.item(i);
+        entries.push({
+          ...row,
+          metadata: row.metadata ? JSON.parse(row.metadata) : undefined,
+          isMilestone: row.isMilestone === 1,
+        });
+      }
+
+      return entries;
+    } catch (error) {
+      console.error('Failed to retrieve milestone activities from cache:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Clear all cached data
+   */
+  async clearCache(): Promise<void> {
+    this.cache.clear();
+
+    if (!this.db) return;
+
+    try {
+      await this.db.executeSql(`DELETE FROM ${ACTIVITY_FEED_TABLE}`);
+    } catch (error) {
+      console.error('Failed to clear activity feed cache:', error);
+    }
+  }
+
+  /**
+   * Close database connection
+   */
+  async close(): Promise<void> {
+    if (this.db) {
+      try {
+        await this.db.close();
+      } catch (error) {
+        console.error('Failed to close activity feed database:', error);
+      }
+    }
   }
 }
-
-export default ActivityFeedService.getInstance();

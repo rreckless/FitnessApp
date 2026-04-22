@@ -91,6 +91,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    profiles:
+      - full
 
   xp-progression-service:
     build:
@@ -113,6 +115,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    profiles:
+      - full
 
   leaderboard-service:
     build:
@@ -132,6 +136,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    profiles:
+      - full
 
   user-profile-service:
     build:
@@ -154,6 +160,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    profiles:
+      - full
 
   sync-service:
     build:
@@ -173,6 +181,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    profiles:
+      - full
 
   exercise-library-service:
     build:
@@ -195,6 +205,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    profiles:
+      - full
 
   streak-tracking-service:
     build:
@@ -220,6 +232,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    profiles:
+      - full
 
   social-service:
     build:
@@ -237,6 +251,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    profiles:
+      - full
 
   achievement-service:
     build:
@@ -254,6 +270,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    profiles:
+      - full
 
   activity-feed-service:
     build:
@@ -271,6 +289,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    profiles:
+      - full
 
   challenge-service:
     build:
@@ -285,6 +305,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    profiles:
+      - full
 
   progress-tracking-service:
     build:
@@ -299,6 +321,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    profiles:
+      - full
 
   body-tracking-service:
     build:
@@ -313,6 +337,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    profiles:
+      - full
 
   gps-route-service:
     build:
@@ -327,6 +353,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    profiles:
+      - full
 
   premium-subscription-service:
     build:
@@ -343,6 +371,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    profiles:
+      - full
 
 volumes:
   postgres_data:

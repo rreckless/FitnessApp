@@ -189,7 +189,7 @@ FitQuest is implemented across two platforms: iOS (React Native/TypeScript) for 
   - Add offline storage to sync queue
   - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7_
 
-- [ ] 2.18 Implement iOS User Profile and Onboarding (React Native/TypeScript)
+- [x] 2.18 Implement iOS User Profile and Onboarding (React Native/TypeScript)
   - Create UserProfileService with profile CRUD operations
   - Implement profile picture upload and caching
   - Create preference management UI and storage
@@ -198,7 +198,7 @@ FitQuest is implemented across two platforms: iOS (React Native/TypeScript) for 
   - Create onboarding completion logic that initializes user at Level 1 with 0 XP
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6_
 
-- [ ] 2.19 Implement iOS Exercise Library (React Native/TypeScript)
+- [x] 2.19 Implement iOS Exercise Library (React Native/TypeScript)
   - Create ExerciseLibraryService with local caching
   - Implement fuzzy search with offline support
   - Create exercise selection UI for workout logging
@@ -295,14 +295,14 @@ FitQuest is implemented across two platforms: iOS (React Native/TypeScript) for 
   - **Property 28: Challenge Progress Tracking**
   - **Validates: Requirements 12.4, 12.5**
 
-- [ ] 3.13 Implement iOS Leaderboard Service (React Native/TypeScript)
+- [x] 3.13 Implement iOS Leaderboard Service (React Native/TypeScript)
   - Create LeaderboardService with local caching
   - Implement leaderboard display with pagination
   - Create user position highlighting
   - Implement nearby competitors display
   - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5, 9.6_
 
-- [ ] 3.14 Implement iOS Social Services (React Native/TypeScript)
+- [x] 3.14 Implement iOS Social Services (React Native/TypeScript)
   - Create FriendService with friend request management
   - Implement friend search by username/email
   - Create friend list display
@@ -317,7 +317,7 @@ FitQuest is implemented across two platforms: iOS (React Native/TypeScript) for 
   - Implement challenge notifications
   - _Requirements: 10.0, 11.0, 12.0_
 
-- [ ] 3.15 Implement iOS Achievement System (React Native/TypeScript)
+- [x] 3.15 Implement iOS Achievement System (React Native/TypeScript)
   - Create AchievementService with local caching
   - Implement achievement unlock detection
   - Create achievement notification system
@@ -400,14 +400,14 @@ FitQuest is implemented across two platforms: iOS (React Native/TypeScript) for 
   - Publish SubscriptionUpgraded events
   - _Requirements: 27.0, 28.0, 29.1, 29.2, 29.3, 29.4, 29.5, 29.6_
 
-- [ ] 4.10 Implement iOS Progress Tracking (React Native/TypeScript)
+- [x] 4.10 Implement iOS Progress Tracking (React Native/TypeScript)
   - Create ProgressTrackerService with PR and volume tracking
   - Implement PR detection and notifications
   - Create chart display and export
   - Implement filtering by muscle group and exercise
   - _Requirements: 13.0, 14.0_
 
-- [ ] 4.11 Implement iOS Body Tracking (React Native/TypeScript)
+- [x] 4.11 Implement iOS Body Tracking (React Native/TypeScript)
   - Create BodyTrackerService with weight and measurement logging
   - Implement weight history display with trend line
   - Create measurement history with change calculations
@@ -417,7 +417,7 @@ FitQuest is implemented across two platforms: iOS (React Native/TypeScript) for 
   - Create photo deletion with sync
   - _Requirements: 15.1, 15.2, 15.3, 15.4, 15.5, 16.1, 16.2, 16.3, 16.4, 16.5, 16.6_
 
-- [ ] 4.12 Implement iOS Rest Timer (React Native/TypeScript)
+- [x] 4.12 Implement iOS Rest Timer (React Native/TypeScript)
   - Create RestTimerService with countdown timer
   - Implement smart rest duration suggestions based on exercise type
   - Create manual duration adjustment (30-300 seconds)
@@ -425,11 +425,11 @@ FitQuest is implemented across two platforms: iOS (React Native/TypeScript) for 
   - Add notification sound on timer completion
   - _Requirements: 17.1, 17.2, 17.3, 17.4, 17.5, 17.6_
 
-- [ ]* 4.13 Write property test for rest timer suggestions
+- [x]* 4.13 Write property test for rest timer suggestions
   - **Property 32: Rest Timer Suggestions**
   - **Validates: Requirements 17.4**
 
-- [ ] 4.14 Implement iOS GPS Tracking (React Native/TypeScript)
+- [x] 4.14 Implement iOS GPS Tracking (React Native/TypeScript)
   - Create GPSTrackerService with location permission handling
   - Implement GPS coordinate recording (every 10 seconds or 10m distance change)
   - Create distance, pace, and elevation calculation
@@ -437,15 +437,15 @@ FitQuest is implemented across two platforms: iOS (React Native/TypeScript) for 
   - Add signal loss handling and recovery
   - _Requirements: 20.1, 20.2, 20.3, 20.4, 20.5, 20.6_
 
-- [ ]* 4.15 Write property test for GPS recording accuracy
+- [x]* 4.15 Write property test for GPS recording accuracy
   - **Property 16: GPS Recording Accuracy**
   - **Validates: Requirements 20.1, 20.2, 20.3, 20.4**
 
-- [ ]* 4.16 Write property test for GPS signal loss handling
+- [x]* 4.16 Write property test for GPS signal loss handling
   - **Property 17: GPS Signal Loss Handling**
   - **Validates: Requirements 20.5**
 
-- [ ] 4.17 Implement iOS Route Planning (React Native/TypeScript)
+- [x] 4.17 Implement iOS Route Planning (React Native/TypeScript)
   - Create RouteService with route creation and navigation
   - Implement start/end point selection on map
   - Create distance and time estimation
@@ -453,11 +453,11 @@ FitQuest is implemented across two platforms: iOS (React Native/TypeScript) for 
   - Add route saving and sharing
   - _Requirements: 21.1, 21.2, 21.3, 21.4, 21.5, 21.6_
 
-- [ ]* 4.18 Write property test for route navigation
+- [x]* 4.18 Write property test for route navigation
   - **Property 37: Route Navigation**
   - **Validates: Requirements 21.3, 21.4**
 
-- [ ] 4.19 Implement iOS Home Screen Widgets (React Native/TypeScript)
+- [x] 4.19 Implement iOS Home Screen Widgets (React Native/TypeScript)
   - Create small widget displaying current streak and XP progress
   - Create medium widget displaying today's workout status and next milestone
   - Create large widget displaying leaderboard position and friends' activity

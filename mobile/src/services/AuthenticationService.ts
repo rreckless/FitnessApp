@@ -1,122 +1,102 @@
-import * as Keychain from 'react-native-keychain';
 import axios, { AxiosInstance } from 'axios';
-import type { User, TokenPair, AuthResponse } from '@types/index';
-import { AuthError, AuthErrorType } from '@types/index';
-import Config from '@config/Config';
-import uuid from 'react-native-uuid';
+import * as SecureStore from 'expo-secure-store';
 
-let Platform: any;
-try {
-  Platform = require('react-native').Platform;
-} catch (e) {
-  // Fallback for testing
-  Platform = { OS: 'ios', Version: '14.0' };
+interface LoginResponse {
+  success: boolean;
+  userId: string;
+  email: string;
+  accessToken: string;
+  refreshToken: string;
+  expiresIn: number;
 }
 
-const uuidv4 = uuid.v4;
+interface RegisterResponse {
+  success: boolean;
+  userId: string;
+  email: string;
+  accessToken: string;
+  refreshToken: string;
+  expiresIn: number;
+}
 
-export interface DeviceFingerprint {
-  deviceId: string;
-  platform: string;
-  osVersion: string;
-  appVersion: string;
-  createdAt: string;
+interface RefreshTokenResponse {
+  success: boolean;
+  accessToken: string;
+  refreshToken: string;
+  expiresIn: number;
 }
 
 export class AuthenticationService {
-  private static instance: AuthenticationService;
-  private api: AxiosInstance;
-  private keychainService = 'com.fitquest.auth';
-  private accessTokenKey = 'accessToken';
-  private refreshTokenKey = 'refreshToken';
-  private userKey = 'currentUser';
-  private deviceFingerprintKey = 'deviceFingerprint';
+  private apiClient: AxiosInstance;
+  private baseURL: string;
+  private accessToken: string | null = null;
+  private refreshToken: string | null = null;
 
-  private currentUser: User | null = null;
-  private isAuthenticated = false;
-  private deviceFingerprint: DeviceFingerprint | null = null;
-  private tokenRefreshTimer: NodeJS.Timeout | null = null;
+  constructor(baseURL: string = 'http://localhost:5001') {
+    this.baseURL = baseURL;
+    this.apiClient = axios.create({
+      baseURL: this.baseURL,
+      timeout: 10000,
+    });
 
-  private constructor() {
-    this.api = axios.create({
-      baseURL: Config.apiBaseURL,
-      headers: {
-        'Content-Type': 'application/json',
+    // Add request interceptor to include auth token
+    this.apiClient.interceptors.request.use(
+      (config) => {
+        if (this.accessToken) {
+          config.headers.Authorization = `Bearer ${this.accessToken}`;
+        }
+        return config;
       },
-    });
-
-    // Add request interceptor to include auth token and device fingerprint
-    this.api.interceptors.request.use(async (config) => {
-      const token = await this.getAccessToken();
-      if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
-      }
-      
-      // Add device fingerprint to headers
-      const fingerprint = await this.getDeviceFingerprint();
-      if (fingerprint) {
-        config.headers['X-Device-ID'] = fingerprint.deviceId;
-        config.headers['X-Platform'] = fingerprint.platform;
-      }
-      
-      return config;
-    });
+      (error) => Promise.reject(error)
+    );
 
     // Add response interceptor to handle token refresh
-    this.api.interceptors.response.use(
+    this.apiClient.interceptors.response.use(
       (response) => response,
       async (error) => {
         const originalRequest = error.config;
 
-        // If 401 and not already retrying, try to refresh token
         if (error.response?.status === 401 && !originalRequest._retry) {
           originalRequest._retry = true;
+
           try {
-            await this.refreshAccessToken();
-            const token = await this.getAccessToken();
-            if (token) {
-              originalRequest.headers.Authorization = `Bearer ${token}`;
-              return this.api(originalRequest);
+            if (this.refreshToken) {
+              const response = await this.apiClient.post<RefreshTokenResponse>(
+                '/auth/refresh',
+                { refreshToken: this.refreshToken }
+              );
+
+              this.accessToken = response.data.accessToken;
+              this.refreshToken = response.data.refreshToken;
+
+              await this.saveTokens(this.accessToken, this.refreshToken);
+
+              originalRequest.headers.Authorization = `Bearer ${this.accessToken}`;
+              return this.apiClient(originalRequest);
             }
           } catch (refreshError) {
-            // Refresh failed, logout user
             await this.logout();
-            throw refreshError;
+            return Promise.reject(refreshError);
           }
         }
 
         return Promise.reject(error);
       }
     );
-
-    this.loadStoredUser();
-    this.initializeTokenRefreshTimer();
   }
 
-  static getInstance(): AuthenticationService {
-    if (!AuthenticationService.instance) {
-      AuthenticationService.instance = new AuthenticationService();
-    }
-    return AuthenticationService.instance;
-  }
-
-  /**
-   * Register a new user
-   */
-  async register(email: string, password: string, name: string): Promise<AuthResponse> {
+  async register(email: string, password: string, name: string): Promise<RegisterResponse> {
     try {
-      const response = await this.api.post<AuthResponse>('/auth/register', {
+      const response = await this.apiClient.post<RegisterResponse>('/auth/register', {
         email,
         password,
         name,
       });
 
-      // Store tokens and user
-      await this.storeTokens(response.data.tokens.accessToken, response.data.tokens.refreshToken);
-      await this.storeUser(response.data.user);
+      this.accessToken = response.data.accessToken;
+      this.refreshToken = response.data.refreshToken;
 
-      this.currentUser = response.data.user;
-      this.isAuthenticated = true;
+      await this.saveTokens(this.accessToken, this.refreshToken);
 
       return response.data;
     } catch (error) {
@@ -124,22 +104,17 @@ export class AuthenticationService {
     }
   }
 
-  /**
-   * Login user with email and password
-   */
-  async login(email: string, password: string): Promise<AuthResponse> {
+  async login(email: string, password: string): Promise<LoginResponse> {
     try {
-      const response = await this.api.post<AuthResponse>('/auth/login', {
+      const response = await this.apiClient.post<LoginResponse>('/auth/login', {
         email,
         password,
       });
 
-      // Store tokens and user
-      await this.storeTokens(response.data.tokens.accessToken, response.data.tokens.refreshToken);
-      await this.storeUser(response.data.user);
+      this.accessToken = response.data.accessToken;
+      this.refreshToken = response.data.refreshToken;
 
-      this.currentUser = response.data.user;
-      this.isAuthenticated = true;
+      await this.saveTokens(this.accessToken, this.refreshToken);
 
       return response.data;
     } catch (error) {
@@ -147,353 +122,80 @@ export class AuthenticationService {
     }
   }
 
-  /**
-   * Logout user
-   */
   async logout(): Promise<void> {
     try {
-      await this.api.post('/auth/logout');
+      if (this.accessToken) {
+        await this.apiClient.post('/auth/logout');
+      }
     } catch (error) {
-      console.error('Logout error:', error);
+      console.warn('Logout error:', error);
     } finally {
-      // Clear stored tokens and user
+      this.accessToken = null;
+      this.refreshToken = null;
       await this.clearTokens();
-      await this.clearUser();
-      this.clearTokenRefreshTimer();
-
-      this.currentUser = null;
-      this.isAuthenticated = false;
     }
   }
 
-  /**
-   * Refresh access token
-   */
-  async refreshAccessToken(): Promise<TokenPair> {
+  async restoreSession(): Promise<boolean> {
     try {
-      const refreshToken = await this.getRefreshToken();
-      if (!refreshToken) {
-        throw new AuthError(AuthErrorType.NoToken, 'No refresh token available');
+      const accessToken = await SecureStore.getItemAsync('accessToken');
+      const refreshToken = await SecureStore.getItemAsync('refreshToken');
+
+      if (accessToken && refreshToken) {
+        this.accessToken = accessToken;
+        this.refreshToken = refreshToken;
+        return true;
       }
 
-      const response = await this.api.post<TokenPair>('/auth/refresh', {
-        refreshToken,
-      });
-
-      // Store new tokens
-      await this.storeTokens(response.data.accessToken, response.data.refreshToken);
-
-      return response.data;
+      return false;
     } catch (error) {
-      throw this.handleError(error);
+      console.error('Error restoring session:', error);
+      return false;
     }
   }
 
-  /**
-   * Request password reset
-   */
-  async requestPasswordReset(email: string): Promise<{ message: string }> {
+  private async saveTokens(accessToken: string, refreshToken: string): Promise<void> {
     try {
-      const response = await this.api.post('/auth/password-reset', { email });
-      return response.data;
+      await SecureStore.setItemAsync('accessToken', accessToken);
+      await SecureStore.setItemAsync('refreshToken', refreshToken);
     } catch (error) {
-      throw this.handleError(error);
+      console.error('Error saving tokens:', error);
     }
   }
 
-  /**
-   * Confirm password reset
-   */
-  async confirmPasswordReset(resetToken: string, newPassword: string): Promise<{ success: boolean }> {
-    try {
-      const response = await this.api.post('/auth/password-reset/confirm', {
-        resetToken,
-        newPassword,
-      });
-      return response.data;
-    } catch (error) {
-      throw this.handleError(error);
-    }
-  }
-
-  /**
-   * Get current access token
-   */
-  async getAccessToken(): Promise<string | null> {
-    try {
-      const credentials = await Keychain.getGenericPassword({
-        service: this.keychainService,
-      });
-      if (credentials && credentials.username === this.accessTokenKey) {
-        return credentials.password;
-      }
-      return null;
-    } catch (error) {
-      console.error('Failed to get access token:', error);
-      return null;
-    }
-  }
-
-  /**
-   * Get current refresh token
-   */
-  async getRefreshToken(): Promise<string | null> {
-    try {
-      const credentials = await Keychain.getGenericPassword({
-        service: this.keychainService,
-      });
-      if (credentials && credentials.username === this.refreshTokenKey) {
-        return credentials.password;
-      }
-      return null;
-    } catch (error) {
-      console.error('Failed to get refresh token:', error);
-      return null;
-    }
-  }
-
-  /**
-   * Get device fingerprint
-   */
-  async getDeviceFingerprint(): Promise<DeviceFingerprint | null> {
-    if (this.deviceFingerprint) {
-      return this.deviceFingerprint;
-    }
-
-    try {
-      const AsyncStorage = require('@react-native-async-storage/async-storage').default;
-      const stored = await AsyncStorage.getItem(this.deviceFingerprintKey);
-      
-      if (stored) {
-        this.deviceFingerprint = JSON.parse(stored);
-        return this.deviceFingerprint;
-      }
-
-      // Create new device fingerprint
-      const fingerprint: DeviceFingerprint = {
-        deviceId: uuidv4() as string,
-        platform: Platform.OS,
-        osVersion: Platform.Version?.toString() || 'unknown',
-        appVersion: Config.appVersion,
-        createdAt: new Date().toISOString(),
-      };
-
-      await AsyncStorage.setItem(this.deviceFingerprintKey, JSON.stringify(fingerprint));
-      this.deviceFingerprint = fingerprint;
-      return fingerprint;
-    } catch (error) {
-      console.error('Failed to get device fingerprint:', error);
-      return null;
-    }
-  }
-
-  /**
-   * Get current user
-   */
-  getCurrentUser(): User | null {
-    return this.currentUser;
-  }
-
-  /**
-   * Check if user is authenticated
-   */
-  getIsAuthenticated(): boolean {
-    return this.isAuthenticated;
-  }
-
-  /**
-   * Validate password meets requirements
-   */
-  isValidPassword(password: string): boolean {
-    // Minimum 12 characters
-    if (password.length < 12) return false;
-
-    // Must contain uppercase
-    if (!/[A-Z]/.test(password)) return false;
-
-    // Must contain lowercase
-    if (!/[a-z]/.test(password)) return false;
-
-    // Must contain number
-    if (!/[0-9]/.test(password)) return false;
-
-    // Must contain special character
-    if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>/?]/.test(password)) return false;
-
-    return true;
-  }
-
-  /**
-   * Validate email format
-   */
-  isValidEmail(email: string): boolean {
-    const emailRegex = /^[A-Z0-9a-z._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
-    return emailRegex.test(email);
-  }
-
-  /**
-   * Check if token is expired
-   */
-  static isTokenExpired(token: string): boolean {
-    const expirationTime = AuthenticationService.extractExpirationFromTokenStatic(token);
-    if (!expirationTime) return true;
-    return new Date() > expirationTime;
-  }
-
-  /**
-   * Check if token should be refreshed (expires within 5 minutes)
-   */
-  static shouldRefreshToken(token: string): boolean {
-    const expirationTime = AuthenticationService.extractExpirationFromTokenStatic(token);
-    if (!expirationTime) return true;
-    const refreshThreshold = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
-    return expirationTime < refreshThreshold;
-  }
-
-  /**
-   * Extract expiration time from JWT token (static version)
-   */
-  private static extractExpirationFromTokenStatic(token: string): Date | null {
-    try {
-      const parts = token.split('.');
-      if (parts.length !== 3) return null;
-
-      let payload = parts[1];
-      // Add padding if needed
-      const remainder = payload.length % 4;
-      if (remainder > 0) {
-        payload += '='.repeat(4 - remainder);
-      }
-
-      const decoded = JSON.parse(Buffer.from(payload, 'base64').toString('utf-8'));
-      if (decoded.exp) {
-        return new Date(decoded.exp * 1000);
-      }
-      return null;
-    } catch (error) {
-      console.error('Failed to extract expiration from token:', error);
-      return null;
-    }
-  }
-
-  /**
-   * Initialize automatic token refresh timer
-   */
-  private initializeTokenRefreshTimer(): void {
-    // Check token every minute
-    this.tokenRefreshTimer = setInterval(async () => {
-      try {
-        const token = await this.getAccessToken();
-        if (token && AuthenticationService.shouldRefreshToken(token)) {
-          console.log('Auto-refreshing token...');
-          await this.refreshAccessToken();
-        }
-      } catch (error) {
-        console.error('Auto-refresh failed:', error);
-      }
-    }, 60000); // Check every minute
-  }
-
-  /**
-   * Clear token refresh timer
-   */
-  private clearTokenRefreshTimer(): void {
-    if (this.tokenRefreshTimer) {
-      clearInterval(this.tokenRefreshTimer);
-      this.tokenRefreshTimer = null;
-    }
-  }
-
-  /**
-   * Store tokens in Keychain
-   */
-  private async storeTokens(accessToken: string, refreshToken: string): Promise<void> {
-    try {
-      await Keychain.setGenericPassword(this.accessTokenKey, accessToken, {
-        service: this.keychainService,
-      });
-      await Keychain.setGenericPassword(this.refreshTokenKey, refreshToken, {
-        service: this.keychainService,
-      });
-    } catch (error) {
-      throw new AuthError(AuthErrorType.KeychainError, `Failed to store tokens: ${error}`);
-    }
-  }
-
-  /**
-   * Clear tokens from Keychain
-   */
   private async clearTokens(): Promise<void> {
     try {
-      await Keychain.resetGenericPassword({ service: this.keychainService });
+      await SecureStore.deleteItemAsync('accessToken');
+      await SecureStore.deleteItemAsync('refreshToken');
     } catch (error) {
-      console.error('Failed to clear tokens:', error);
+      console.error('Error clearing tokens:', error);
     }
   }
 
-  /**
-   * Store user in AsyncStorage
-   */
-  private async storeUser(user: User): Promise<void> {
-    try {
-      const AsyncStorage = require('@react-native-async-storage/async-storage').default;
-      await AsyncStorage.setItem(this.userKey, JSON.stringify(user));
-    } catch (error) {
-      throw new AuthError(AuthErrorType.StorageError, `Failed to store user: ${error}`);
-    }
-  }
-
-  /**
-   * Clear user from AsyncStorage
-   */
-  private async clearUser(): Promise<void> {
-    try {
-      const AsyncStorage = require('@react-native-async-storage/async-storage').default;
-      await AsyncStorage.removeItem(this.userKey);
-    } catch (error) {
-      console.error('Failed to clear user:', error);
-    }
-  }
-
-  /**
-   * Load stored user from AsyncStorage
-   */
-  private async loadStoredUser(): Promise<void> {
-    try {
-      const AsyncStorage = require('@react-native-async-storage/async-storage').default;
-      const data = await AsyncStorage.getItem(this.userKey);
-      if (data) {
-        this.currentUser = JSON.parse(data);
-        const token = await this.getAccessToken();
-        this.isAuthenticated = !!token;
+  private handleError(error: any): Error {
+    if (axios.isAxiosError(error)) {
+      if (error.response?.status === 401) {
+        return new Error('Invalid email or password');
       }
-    } catch (error) {
-      console.error('Failed to load stored user:', error);
+      if (error.response?.status === 400) {
+        const data = error.response.data as any;
+        return new Error(data.message || 'Invalid request');
+      }
+      if (error.code === 'ECONNREFUSED') {
+        return new Error('Cannot connect to server. Make sure the backend is running.');
+      }
+      return new Error(error.response?.data?.message || error.message);
     }
+    return new Error('An unexpected error occurred');
   }
 
-  /**
-   * Handle API errors
-   */
-  private handleError(error: any): AuthError {
-    if (error.response) {
-      const status = error.response.status;
-      const data = error.response.data;
+  getAccessToken(): string | null {
+    return this.accessToken;
+  }
 
-      switch (status) {
-        case 400:
-          return new AuthError(AuthErrorType.BadRequest, data.error || 'Bad request');
-        case 401:
-          return new AuthError(AuthErrorType.Unauthorized, data.error || 'Unauthorized');
-        case 429:
-          return new AuthError(AuthErrorType.RateLimited, 'Too many requests');
-        default:
-          return new AuthError(AuthErrorType.ServerError, `Server error: ${status}`);
-      }
-    }
-
-    return new AuthError(AuthErrorType.NetworkError, error.message || 'Network error');
+  isAuthenticated(): boolean {
+    return this.accessToken !== null;
   }
 }
 
-export default AuthenticationService.getInstance();
+export const authService = new AuthenticationService();

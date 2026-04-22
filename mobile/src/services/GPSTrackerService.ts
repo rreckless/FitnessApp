@@ -1,358 +1,660 @@
+import axios, { AxiosInstance } from 'axios';
+import SQLite from 'react-native-sqlite-storage';
 import uuid from 'react-native-uuid';
-import DatabaseManager from '../database/DatabaseManager';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import Geolocation from 'react-native-geolocation-service';
+import { PermissionsAndroid, Platform } from 'react-native';
 
-const uuidv4 = uuid.v4;
-
-export interface GPSCoordinate {
+export interface GPSPoint {
   id: string;
+  workoutId: string;
   latitude: number;
   longitude: number;
-  elevation: number | null;
-  accuracy: number | null;
+  elevation?: number;
+  accuracy: number;
   timestamp: string;
+  createdAt: string;
 }
 
 export interface GPSTrackingSession {
   id: string;
+  workoutId: string;
   startTime: string;
-  endTime: string | null;
-  coordinates: GPSCoordinate[];
-  distance: number; // miles
-  pace: number; // minutes per mile
-  elevationGain: number; // feet
-  elevationLoss: number; // feet
+  endTime?: string;
+  totalDistance: number; // meters
+  averagePace: number; // seconds per km
+  elevationGain: number; // meters
+  elevationLoss: number; // meters
+  pointCount: number;
+  signalLossCount: number;
   isActive: boolean;
-  signalLost: boolean;
-  lastSignalTime: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
-export interface GPSStats {
-  totalDistance: number;
-  averagePace: number;
-  elevationGain: number;
-  elevationLoss: number;
-  duration: number; // seconds
+export interface RealTimeMetrics {
+  currentDistance: number; // meters
+  currentPace: number; // seconds per km
+  elapsedTime: number; // seconds
+  currentElevation?: number;
+  averageElevation?: number;
+  lastUpdateTime: string;
+}
+
+export interface SignalLossEvent {
+  id: string;
+  sessionId: string;
+  lossStartTime: string;
+  recoveryTime?: string;
+  durationSeconds: number;
+  createdAt: string;
+}
+
+interface CacheEntry {
+  data: any;
+  timestamp: number;
 }
 
 export class GPSTrackerService {
-  private static instance: GPSTrackerService;
+  private apiClient: AxiosInstance;
+  private db: SQLite.SQLiteDatabase | null = null;
+  private userId: string;
+  private apiBaseUrl: string;
+  private cache: Map<string, CacheEntry> = new Map();
+  private cacheExpiry = 5 * 60 * 1000; // 5 minutes
   private currentSession: GPSTrackingSession | null = null;
-  private listeners: Set<(session: GPSTrackingSession | null) => void> = new Set();
-  private lastCoordinate: GPSCoordinate | null = null;
+  private lastPoint: GPSPoint | null = null;
+  private trackingInterval: NodeJS.Timeout | null = null;
+  private signalLossTimeout: NodeJS.Timeout | null = null;
+  private listeners: Map<string, Function[]> = new Map();
+  private signalLossThreshold = 30000; // 30 seconds
+  private minDistanceChange = 10; // meters
+  private recordingInterval = 10000; // 10 seconds
 
-  private constructor() {}
+  constructor(apiBaseUrl: string, userId: string) {
+    this.apiBaseUrl = apiBaseUrl;
+    this.userId = userId;
+    this.apiClient = axios.create({
+      baseURL: apiBaseUrl,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-User-ID': userId,
+      },
+    });
+    this.initializeDatabase();
+  }
 
-  static getInstance(): GPSTrackerService {
-    if (!GPSTrackerService.instance) {
-      GPSTrackerService.instance = new GPSTrackerService();
+  private async initializeDatabase(): Promise<void> {
+    try {
+      this.db = await SQLite.openDatabase({
+        name: 'fitquest.db',
+        location: 'default',
+      });
+
+      await this.db.executeSql(`
+        CREATE TABLE IF NOT EXISTS gps_points (
+          id TEXT PRIMARY KEY,
+          workoutId TEXT NOT NULL,
+          latitude REAL NOT NULL,
+          longitude REAL NOT NULL,
+          elevation REAL,
+          accuracy REAL NOT NULL,
+          timestamp TEXT NOT NULL,
+          createdAt TEXT NOT NULL,
+          synced INTEGER DEFAULT 0
+        )
+      `);
+
+      await this.db.executeSql(`
+        CREATE TABLE IF NOT EXISTS gps_sessions (
+          id TEXT PRIMARY KEY,
+          workoutId TEXT NOT NULL,
+          startTime TEXT NOT NULL,
+          endTime TEXT,
+          totalDistance REAL NOT NULL,
+          averagePace REAL NOT NULL,
+          elevationGain REAL NOT NULL,
+          elevationLoss REAL NOT NULL,
+          pointCount INTEGER NOT NULL,
+          signalLossCount INTEGER NOT NULL,
+          isActive INTEGER NOT NULL,
+          createdAt TEXT NOT NULL,
+          updatedAt TEXT NOT NULL,
+          synced INTEGER DEFAULT 0
+        )
+      `);
+
+      await this.db.executeSql(`
+        CREATE TABLE IF NOT EXISTS signal_loss_events (
+          id TEXT PRIMARY KEY,
+          sessionId TEXT NOT NULL,
+          lossStartTime TEXT NOT NULL,
+          recoveryTime TEXT,
+          durationSeconds INTEGER NOT NULL,
+          createdAt TEXT NOT NULL,
+          synced INTEGER DEFAULT 0
+        )
+      `);
+    } catch (error) {
+      console.error('Failed to initialize GPSTrackerService database:', error);
     }
-    return GPSTrackerService.instance;
   }
 
   /**
-   * Start GPS tracking session
+   * Request location permissions
    */
-  async startTracking(): Promise<GPSTrackingSession> {
+  async requestLocationPermission(): Promise<boolean> {
+    try {
+      if (Platform.OS === 'android') {
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+          {
+            title: 'FitQuest Location Permission',
+            message: 'FitQuest needs access to your location to track your workout.',
+            buttonNeutral: 'Ask Me Later',
+            buttonNegative: 'Cancel',
+            buttonPositive: 'OK',
+          }
+        );
+        return granted === PermissionsAndroid.RESULTS.GRANTED;
+      }
+      // iOS permissions are handled via Info.plist
+      return true;
+    } catch (error) {
+      console.error('Failed to request location permission:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Start GPS tracking for a workout
+   */
+  async startTracking(workoutId: string): Promise<GPSTrackingSession> {
+    const hasPermission = await this.requestLocationPermission();
+    if (!hasPermission) {
+      throw new Error('Location permission denied');
+    }
+
+    const sessionId = uuid.v4().toString();
     const now = new Date().toISOString();
-    const session: GPSTrackingSession = {
-      id: uuidv4() as string,
+
+    this.currentSession = {
+      id: sessionId,
+      workoutId,
       startTime: now,
-      endTime: null,
-      coordinates: [],
-      distance: 0,
-      pace: 0,
+      totalDistance: 0,
+      averagePace: 0,
       elevationGain: 0,
       elevationLoss: 0,
+      pointCount: 0,
+      signalLossCount: 0,
       isActive: true,
-      signalLost: false,
-      lastSignalTime: now,
       createdAt: now,
       updatedAt: now,
     };
 
-    this.currentSession = session;
-    await this.saveSession(session);
-    this.notifyListeners();
+    await this.storeSessionLocally(this.currentSession);
+    this.emit('trackingStarted', this.currentSession);
 
-    return session;
+    // Start recording GPS points
+    this.startRecording();
+
+    return this.currentSession;
   }
 
   /**
-   * Record GPS coordinate
-   * Records every 10 seconds or when distance changes by 10 meters
+   * Stop GPS tracking
    */
-  async recordCoordinate(
-    latitude: number,
-    longitude: number,
-    elevation?: number,
-    accuracy?: number
-  ): Promise<GPSCoordinate | null> {
+  async stopTracking(): Promise<GPSTrackingSession | null> {
     if (!this.currentSession) {
       return null;
     }
 
-    // Check if we should record this coordinate
-    if (this.lastCoordinate) {
-      const distance = this.calculateDistance(
-        this.lastCoordinate.latitude,
-        this.lastCoordinate.longitude,
-        latitude,
-        longitude
-      );
-
-      // Only record if distance > 10 meters (0.0062 miles)
-      if (distance < 0.0062) {
-        return null;
-      }
-    }
-
-    const coordinate: GPSCoordinate = {
-      id: uuidv4() as string,
-      latitude,
-      longitude,
-      elevation: elevation || null,
-      accuracy: accuracy || null,
-      timestamp: new Date().toISOString(),
-    };
-
-    this.currentSession.coordinates.push(coordinate);
-    this.lastCoordinate = coordinate;
-    this.currentSession.lastSignalTime = coordinate.timestamp;
-    this.currentSession.signalLost = false;
-
-    // Recalculate stats
-    await this.recalculateStats();
-    await this.saveSession(this.currentSession);
-    this.notifyListeners();
-
-    return coordinate;
-  }
-
-  /**
-   * Handle GPS signal loss
-   */
-  async handleSignalLoss(): Promise<void> {
-    if (!this.currentSession) {
-      return;
-    }
-
-    this.currentSession.signalLost = true;
-    await this.saveSession(this.currentSession);
-    this.notifyListeners();
-  }
-
-  /**
-   * Handle GPS signal recovery
-   */
-  async handleSignalRecovery(): Promise<void> {
-    if (!this.currentSession) {
-      return;
-    }
-
-    this.currentSession.signalLost = false;
-    this.currentSession.lastSignalTime = new Date().toISOString();
-    await this.saveSession(this.currentSession);
-    this.notifyListeners();
-  }
-
-  /**
-   * End GPS tracking session
-   */
-  async endTracking(): Promise<GPSTrackingSession | null> {
-    if (!this.currentSession) {
-      return null;
-    }
+    this.stopRecording();
 
     const now = new Date().toISOString();
     this.currentSession.endTime = now;
     this.currentSession.isActive = false;
     this.currentSession.updatedAt = now;
 
-    await this.saveSession(this.currentSession);
+    await this.updateSessionLocally(this.currentSession);
+    this.emit('trackingStopped', this.currentSession);
+
     const session = this.currentSession;
     this.currentSession = null;
-    this.lastCoordinate = null;
-    this.notifyListeners();
+    this.lastPoint = null;
 
     return session;
   }
 
   /**
-   * Get current tracking session
+   * Get real-time metrics during tracking
    */
-  getCurrentSession(): GPSTrackingSession | null {
-    return this.currentSession;
-  }
+  getRealTimeMetrics(): RealTimeMetrics | null {
+    if (!this.currentSession) {
+      return null;
+    }
 
-  /**
-   * Subscribe to session changes
-   */
-  subscribe(listener: (session: GPSTrackingSession | null) => void): () => void {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
+    const elapsedTime = Math.floor(
+      (new Date().getTime() - new Date(this.currentSession.startTime).getTime()) / 1000
+    );
+
+    return {
+      currentDistance: this.currentSession.totalDistance,
+      currentPace: this.currentSession.averagePace,
+      elapsedTime,
+      lastUpdateTime: new Date().toISOString(),
     };
   }
 
   /**
-   * Get tracking history
+   * Get GPS points for a session
    */
-  async getTrackingHistory(limit: number = 50): Promise<GPSTrackingSession[]> {
+  async getSessionPoints(sessionId: string): Promise<GPSPoint[]> {
+    if (!this.db) {
+      return [];
+    }
+
     try {
-      const sql = `
-        SELECT * FROM gps_sessions
-        ORDER BY startTime DESC
-        LIMIT ?
-      `;
-      const result = await DatabaseManager.executeSql(sql, [limit]);
-      return result.rows.raw() as GPSTrackingSession[];
+      const result = await this.db.executeSql(
+        `SELECT * FROM gps_points WHERE workoutId = ? ORDER BY timestamp ASC`,
+        [sessionId]
+      );
+
+      const points: GPSPoint[] = [];
+      for (let i = 0; i < result[0].rows.length; i++) {
+        points.push(result[0].rows.item(i));
+      }
+
+      return points;
     } catch (error) {
-      console.error('Failed to get tracking history:', error);
+      console.error('Failed to get session points:', error);
       return [];
     }
   }
 
   /**
-   * Get session details with coordinates
+   * Calculate distance between two GPS points (Haversine formula)
    */
-  async getSessionDetails(sessionId: string): Promise<GPSTrackingSession | null> {
-    try {
-      const sql = `
-        SELECT * FROM gps_sessions
-        WHERE id = ?
-      `;
-      const result = await DatabaseManager.executeSql(sql, [sessionId]);
-
-      if (result.rows.length === 0) {
-        return null;
-      }
-
-      const session = result.rows.raw()[0] as GPSTrackingSession;
-
-      // Get coordinates
-      const coordSql = `
-        SELECT * FROM gps_coordinates
-        WHERE sessionId = ?
-        ORDER BY timestamp ASC
-      `;
-      const coordResult = await DatabaseManager.executeSql(coordSql, [sessionId]);
-      session.coordinates = coordResult.rows.raw() as GPSCoordinate[];
-
-      return session;
-    } catch (error) {
-      console.error('Failed to get session details:', error);
-      return null;
-    }
-  }
-
-  // MARK: - Private Methods
-
-  private calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    // Haversine formula to calculate distance in miles
-    const R = 3959; // Earth's radius in miles
-    const dLat = this.toRad(lat2 - lat1);
-    const dLon = this.toRad(lon2 - lon1);
+  private calculateDistance(
+    lat1: number,
+    lon1: number,
+    lat2: number,
+    lon2: number
+  ): number {
+    const R = 6371000; // Earth's radius in meters
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLon = ((lon2 - lon1) * Math.PI) / 180;
     const a =
       Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos(this.toRad(lat1)) * Math.cos(this.toRad(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      Math.cos((lat1 * Math.PI) / 180) *
+        Math.cos((lat2 * Math.PI) / 180) *
+        Math.sin(dLon / 2) *
+        Math.sin(dLon / 2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return R * c;
   }
 
-  private toRad(degrees: number): number {
-    return (degrees * Math.PI) / 180;
-  }
-
-  private async recalculateStats(): Promise<void> {
-    if (!this.currentSession || this.currentSession.coordinates.length < 2) {
+  /**
+   * Record a GPS point
+   */
+  private async recordPoint(latitude: number, longitude: number, elevation?: number, accuracy?: number): Promise<void> {
+    if (!this.currentSession || !this.db) {
       return;
     }
 
-    const coords = this.currentSession.coordinates;
-    let totalDistance = 0;
-    let elevationGain = 0;
-    let elevationLoss = 0;
+    const now = new Date().toISOString();
+    const pointId = uuid.v4().toString();
 
-    // Calculate distance and elevation
-    for (let i = 1; i < coords.length; i++) {
-      const prev = coords[i - 1];
-      const curr = coords[i];
+    // Check if distance change is significant
+    if (this.lastPoint) {
+      const distance = this.calculateDistance(
+        this.lastPoint.latitude,
+        this.lastPoint.longitude,
+        latitude,
+        longitude
+      );
 
-      totalDistance += this.calculateDistance(prev.latitude, prev.longitude, curr.latitude, curr.longitude);
+      if (distance < this.minDistanceChange) {
+        return; // Skip if distance change is less than threshold
+      }
 
-      if (prev.elevation && curr.elevation) {
-        const elevationChange = curr.elevation - prev.elevation;
+      // Update session metrics
+      this.currentSession.totalDistance += distance;
+
+      // Calculate elevation changes
+      if (elevation && this.lastPoint.elevation) {
+        const elevationChange = elevation - this.lastPoint.elevation;
         if (elevationChange > 0) {
-          elevationGain += elevationChange;
+          this.currentSession.elevationGain += elevationChange;
         } else {
-          elevationLoss += Math.abs(elevationChange);
+          this.currentSession.elevationLoss += Math.abs(elevationChange);
         }
       }
     }
 
-    // Calculate pace
-    const startTime = new Date(this.currentSession.startTime).getTime();
-    const endTime = new Date(coords[coords.length - 1].timestamp).getTime();
-    const durationMinutes = (endTime - startTime) / 60000;
-    const pace = totalDistance > 0 ? durationMinutes / totalDistance : 0;
+    const point: GPSPoint = {
+      id: pointId,
+      workoutId: this.currentSession.workoutId,
+      latitude,
+      longitude,
+      elevation,
+      accuracy: accuracy || 0,
+      timestamp: now,
+      createdAt: now,
+    };
 
-    this.currentSession.distance = totalDistance;
-    this.currentSession.pace = pace;
-    this.currentSession.elevationGain = elevationGain;
-    this.currentSession.elevationLoss = elevationLoss;
+    this.lastPoint = point;
+    this.currentSession.pointCount++;
+
+    // Calculate average pace (seconds per km)
+    const elapsedSeconds = Math.floor(
+      (new Date().getTime() - new Date(this.currentSession.startTime).getTime()) / 1000
+    );
+    const distanceKm = this.currentSession.totalDistance / 1000;
+    if (distanceKm > 0) {
+      this.currentSession.averagePace = elapsedSeconds / distanceKm;
+    }
+
+    await this.storePointLocally(point);
+    this.emit('pointRecorded', point);
+    this.emit('metricsUpdated', this.getRealTimeMetrics());
   }
 
-  private async saveSession(session: GPSTrackingSession): Promise<void> {
-    try {
-      const sql = `
-        INSERT OR REPLACE INTO gps_sessions
-        (id, startTime, endTime, distance, pace, elevationGain, elevationLoss, isActive, signalLost, lastSignalTime, createdAt, updatedAt)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `;
-      await DatabaseManager.executeSql(sql, [
-        session.id,
-        session.startTime,
-        session.endTime,
-        session.distance,
-        session.pace,
-        session.elevationGain,
-        session.elevationLoss,
-        session.isActive ? 1 : 0,
-        session.signalLost ? 1 : 0,
-        session.lastSignalTime,
-        session.createdAt,
-        session.updatedAt,
-      ]);
+  /**
+   * Start recording GPS points
+   */
+  private startRecording(): void {
+    if (this.trackingInterval) {
+      clearInterval(this.trackingInterval);
+    }
 
-      // Save coordinates
-      for (const coord of session.coordinates) {
-        const coordSql = `
-          INSERT OR REPLACE INTO gps_coordinates
-          (id, sessionId, latitude, longitude, elevation, accuracy, timestamp)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
-        `;
-        await DatabaseManager.executeSql(coordSql, [
-          coord.id,
-          session.id,
-          coord.latitude,
-          coord.longitude,
-          coord.elevation,
-          coord.accuracy,
-          coord.timestamp,
-        ]);
+    this.trackingInterval = setInterval(async () => {
+      try {
+        Geolocation.getCurrentPosition(
+          (position) => {
+            this.recordPoint(
+              position.coords.latitude,
+              position.coords.longitude,
+              position.coords.altitude || undefined,
+              position.coords.accuracy || undefined
+            );
+
+            // Clear signal loss timeout on successful location
+            if (this.signalLossTimeout) {
+              clearTimeout(this.signalLossTimeout);
+            }
+
+            // Set new signal loss timeout
+            this.signalLossTimeout = setTimeout(() => {
+              this.handleSignalLoss();
+            }, this.signalLossThreshold);
+          },
+          (error) => {
+            console.error('GPS error:', error);
+            this.handleSignalLoss();
+          },
+          {
+            enableHighAccuracy: true,
+            timeout: 15000,
+            maximumAge: 0,
+          }
+        );
+      } catch (error) {
+        console.error('Failed to get current position:', error);
       }
-    } catch (error) {
-      console.error('Failed to save GPS session:', error);
+    }, this.recordingInterval);
+  }
+
+  /**
+   * Stop recording GPS points
+   */
+  private stopRecording(): void {
+    if (this.trackingInterval) {
+      clearInterval(this.trackingInterval);
+      this.trackingInterval = null;
+    }
+
+    if (this.signalLossTimeout) {
+      clearTimeout(this.signalLossTimeout);
+      this.signalLossTimeout = null;
     }
   }
 
-  private notifyListeners(): void {
-    this.listeners.forEach((listener) => {
-      listener(this.currentSession);
-    });
+  /**
+   * Handle GPS signal loss
+   */
+  private async handleSignalLoss(): Promise<void> {
+    if (!this.currentSession) {
+      return;
+    }
+
+    this.currentSession.signalLossCount++;
+    this.emit('signalLost', this.currentSession);
+
+    const event: SignalLossEvent = {
+      id: uuid.v4().toString(),
+      sessionId: this.currentSession.id,
+      lossStartTime: new Date().toISOString(),
+      durationSeconds: 0,
+      createdAt: new Date().toISOString(),
+    };
+
+    await this.storeSignalLossEventLocally(event);
+  }
+
+  /**
+   * Store GPS point locally
+   */
+  private async storePointLocally(point: GPSPoint): Promise<void> {
+    if (!this.db) {
+      return;
+    }
+
+    try {
+      await this.db.executeSql(
+        `INSERT INTO gps_points (id, workoutId, latitude, longitude, elevation, accuracy, timestamp, createdAt, synced)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+        [
+          point.id,
+          point.workoutId,
+          point.latitude,
+          point.longitude,
+          point.elevation || null,
+          point.accuracy,
+          point.timestamp,
+          point.createdAt,
+        ]
+      );
+
+      await this.queueForSync('create', point.id, 'GPS_POINT');
+    } catch (error) {
+      console.error('Failed to store point locally:', error);
+    }
+  }
+
+  /**
+   * Store session locally
+   */
+  private async storeSessionLocally(session: GPSTrackingSession): Promise<void> {
+    if (!this.db) {
+      return;
+    }
+
+    try {
+      await this.db.executeSql(
+        `INSERT INTO gps_sessions 
+         (id, workoutId, startTime, endTime, totalDistance, averagePace, elevationGain, elevationLoss, pointCount, signalLossCount, isActive, createdAt, updatedAt, synced)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+        [
+          session.id,
+          session.workoutId,
+          session.startTime,
+          session.endTime || null,
+          session.totalDistance,
+          session.averagePace,
+          session.elevationGain,
+          session.elevationLoss,
+          session.pointCount,
+          session.signalLossCount,
+          session.isActive ? 1 : 0,
+          session.createdAt,
+          session.updatedAt,
+        ]
+      );
+
+      await this.queueForSync('create', session.id, 'GPS_SESSION');
+    } catch (error) {
+      console.error('Failed to store session locally:', error);
+    }
+  }
+
+  /**
+   * Update session locally
+   */
+  private async updateSessionLocally(session: GPSTrackingSession): Promise<void> {
+    if (!this.db) {
+      return;
+    }
+
+    try {
+      await this.db.executeSql(
+        `UPDATE gps_sessions 
+         SET endTime = ?, totalDistance = ?, averagePace = ?, elevationGain = ?, elevationLoss = ?, 
+             pointCount = ?, signalLossCount = ?, isActive = ?, updatedAt = ?
+         WHERE id = ?`,
+        [
+          session.endTime || null,
+          session.totalDistance,
+          session.averagePace,
+          session.elevationGain,
+          session.elevationLoss,
+          session.pointCount,
+          session.signalLossCount,
+          session.isActive ? 1 : 0,
+          session.updatedAt,
+          session.id,
+        ]
+      );
+
+      await this.queueForSync('update', session.id, 'GPS_SESSION');
+    } catch (error) {
+      console.error('Failed to update session locally:', error);
+    }
+  }
+
+  /**
+   * Store signal loss event locally
+   */
+  private async storeSignalLossEventLocally(event: SignalLossEvent): Promise<void> {
+    if (!this.db) {
+      return;
+    }
+
+    try {
+      await this.db.executeSql(
+        `INSERT INTO signal_loss_events (id, sessionId, lossStartTime, recoveryTime, durationSeconds, createdAt, synced)
+         VALUES (?, ?, ?, ?, ?, ?, 0)`,
+        [
+          event.id,
+          event.sessionId,
+          event.lossStartTime,
+          event.recoveryTime || null,
+          event.durationSeconds,
+          event.createdAt,
+        ]
+      );
+
+      await this.queueForSync('create', event.id, 'SIGNAL_LOSS_EVENT');
+    } catch (error) {
+      console.error('Failed to store signal loss event locally:', error);
+    }
+  }
+
+  /**
+   * Queue operation for sync
+   */
+  private async queueForSync(operation: 'create' | 'update' | 'delete', entityId: string, entityType: string): Promise<void> {
+    if (!this.db) {
+      return;
+    }
+
+    try {
+      const syncItem = {
+        id: uuid.v4().toString(),
+        userId: this.userId,
+        operation,
+        entityType,
+        entityId,
+        payload: {},
+        status: 'PENDING',
+        retryCount: 0,
+        createdAt: new Date().toISOString(),
+      };
+
+      await this.db.executeSql(
+        `INSERT INTO sync_queue (id, userId, operation, entityType, entityId, payload, status, retryCount, createdAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          syncItem.id,
+          syncItem.userId,
+          syncItem.operation,
+          syncItem.entityType,
+          syncItem.entityId,
+          JSON.stringify(syncItem.payload),
+          syncItem.status,
+          syncItem.retryCount,
+          syncItem.createdAt,
+        ]
+      );
+    } catch (error) {
+      console.error('Failed to queue for sync:', error);
+    }
+  }
+
+  /**
+   * Subscribe to GPS events
+   */
+  on(event: string, callback: Function): void {
+    if (!this.listeners.has(event)) {
+      this.listeners.set(event, []);
+    }
+    this.listeners.get(event)!.push(callback);
+  }
+
+  /**
+   * Unsubscribe from GPS events
+   */
+  off(event: string, callback: Function): void {
+    if (!this.listeners.has(event)) {
+      return;
+    }
+    const callbacks = this.listeners.get(event)!;
+    const index = callbacks.indexOf(callback);
+    if (index > -1) {
+      callbacks.splice(index, 1);
+    }
+  }
+
+  /**
+   * Emit GPS events
+   */
+  private emit(event: string, data: any): void {
+    if (!this.listeners.has(event)) {
+      return;
+    }
+    this.listeners.get(event)!.forEach((callback) => callback(data));
+  }
+
+  /**
+   * Close database connection
+   */
+  async close(): Promise<void> {
+    this.stopRecording();
+
+    if (this.db) {
+      await this.db.close();
+      this.db = null;
+    }
   }
 }
-
-export default GPSTrackerService.getInstance();
