@@ -41,6 +41,18 @@ FitQuest is a gamified fitness application designed to motivate users through st
 5. THE Authentication_System SHALL store passwords using industry-standard hashing (bcrypt or equivalent)
 6. WHEN a user requests password reset, THE Authentication_System SHALL send a secure reset link via email
 
+### Requirement 1.5: Secure Password Requirements
+
+**User Story:** As a user, I want to be required to use a secure password, so that my account is protected from unauthorized access.
+
+#### Acceptance Criteria
+
+1. WHEN a user creates an account, THE Authentication_System SHALL enforce a minimum password length of 12 characters
+2. WHEN a user creates an account, THE Authentication_System SHALL require passwords to contain at least one uppercase letter, one lowercase letter, one number, and one special character
+3. WHEN a user provides a password that does not meet requirements, THE Authentication_System SHALL return a descriptive error message listing the missing requirements
+4. WHEN a user attempts to reuse a previous password, THE Authentication_System SHALL reject it and require a new password
+5. THE Authentication_System SHALL maintain a history of at least 5 previous passwords per user to prevent reuse
+
 ### Requirement 2: User Profile and Preferences
 
 **User Story:** As a user, I want to manage my profile information and preferences, so that the app reflects my fitness goals and personal settings.
