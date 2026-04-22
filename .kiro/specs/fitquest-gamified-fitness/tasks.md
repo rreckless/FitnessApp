@@ -69,7 +69,7 @@ FitQuest is implemented across two platforms: iOS (React Native/TypeScript) for 
 
 ## Phase 2: Core Microservices (Authentication, User Profile, Workout, XP)
 
-- [ ] 2.1 Implement Authentication Service (.NET 10)
+- [x] 2.1 Implement Authentication Service (.NET 10)
   - Create ASP.NET Core Minimal API project
   - Implement user registration endpoint with email validation and bcrypt password hashing
   - Implement password strength validation (minimum 12 characters, uppercase, lowercase, number, special character)
@@ -81,15 +81,15 @@ FitQuest is implemented across two platforms: iOS (React Native/TypeScript) for 
   - Add device fingerprinting for security
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.5.1, 1.5.2, 1.5.3, 1.5.4, 1.5.5_
 
-- [ ] 2.2 Write property test for password strength validation
+- [x] 2.2 Write property test for password strength validation
   - **Property 2: Password Strength Validation**
   - **Validates: Requirements 1.5.1, 1.5.2, 1.5.3**
 
-- [ ] 2.2a Write property test for password reuse prevention
+- [-] 2.2a Write property test for password reuse prevention
   - **Property 3: Password Reuse Prevention**
   - **Validates: Requirements 1.5.4, 1.5.5**
 
-- [ ] 2.3 Write property test for authentication round trip
+- [x] 2.3 Write property test for authentication round trip
   - **Property 1: Authentication Round Trip**
   - **Validates: Requirements 1.1, 1.3, 1.4**
 
