@@ -6,14 +6,14 @@ FitQuest is implemented across two platforms: iOS (React Native/TypeScript) for 
 
 ## Phase 1: Infrastructure Foundation (Kubernetes, API Gateway, Message Queue, Monitoring)
 
-- [ ] 1.1 Set up Kubernetes cluster and container registry
+- [x] 1.1 Set up Kubernetes cluster and container registry
   - Create Kubernetes cluster (AWS EKS, Azure AKS, or on-premises)
   - Set up Docker container registry (Docker Hub or AWS ECR)
   - Configure kubectl and cluster access
   - Set up namespaces (fitquest, monitoring, ingress)
   - _Requirements: 1.0, 24.0, 25.0_
 
-- [ ] 1.2 Deploy API Gateway (Kong or Nginx)
+- [x] 1.2 Deploy API Gateway (Kong or Nginx)
   - Create API Gateway deployment with 3+ replicas
   - Configure request routing to microservices
   - Implement rate limiting and request throttling
@@ -21,7 +21,7 @@ FitQuest is implemented across two platforms: iOS (React Native/TypeScript) for 
   - Configure TLS/SSL certificates
   - _Requirements: 1.0, 26.0_
 
-- [ ] 1.3 Deploy message queue infrastructure (RabbitMQ or Azure Service Bus)
+- [x] 1.3 Deploy message queue infrastructure (RabbitMQ or Azure Service Bus)
   - Deploy RabbitMQ cluster with 3+ nodes
   - Configure exchanges and queues for event types
   - Set up dead letter queues for failed messages
@@ -29,7 +29,7 @@ FitQuest is implemented across two platforms: iOS (React Native/TypeScript) for 
   - Configure monitoring and alerting
   - _Requirements: 24.0_
 
-- [ ] 1.4 Set up monitoring and observability stack
+- [x] 1.4 Set up monitoring and observability stack
   - Deploy Prometheus for metrics collection
   - Deploy Grafana for visualization and dashboards
   - Deploy Jaeger or Zipkin for distributed tracing
@@ -37,28 +37,28 @@ FitQuest is implemented across two platforms: iOS (React Native/TypeScript) for 
   - Configure PagerDuty or similar for alerting
   - _Requirements: 25.0_
 
-- [ ] 1.5 Set up Redis cluster for caching
+- [x] 1.5 Set up Redis cluster for caching
   - Deploy Redis cluster with 3+ nodes
   - Configure persistence and replication
   - Set up Redis Sentinel for high availability
   - Configure monitoring and alerting
   - _Requirements: 25.0_
 
-- [ ] 1.6 Create shared PostgreSQL database infrastructure
+- [x] 1.6 Create shared PostgreSQL database infrastructure
   - Deploy PostgreSQL 14+ with replication
   - Create shared databases (users, exercises, achievements)
   - Set up automated backups and recovery
   - Configure monitoring and alerting
   - _Requirements: 24.0, 30.0_
 
-- [ ] 1.7 Set up CI/CD pipeline for microservices
+- [x] 1.7 Set up CI/CD pipeline for microservices
   - Configure GitHub Actions for automated builds
   - Create Docker image build and push pipeline
   - Set up automated testing in CI pipeline
   - Configure automated deployment to Kubernetes
   - _Requirements: 25.0_
 
-- [ ] 1.8 Checkpoint - Verify infrastructure is operational
+- [x] 1.8 Checkpoint - Verify infrastructure is operational
   - Ensure Kubernetes cluster is healthy
   - Verify API Gateway is routing requests correctly
   - Verify message queue is operational
@@ -72,18 +72,28 @@ FitQuest is implemented across two platforms: iOS (React Native/TypeScript) for 
 - [ ] 2.1 Implement Authentication Service (.NET 10)
   - Create ASP.NET Core Minimal API project
   - Implement user registration endpoint with email validation and bcrypt password hashing
+  - Implement password strength validation (minimum 12 characters, uppercase, lowercase, number, special character)
+  - Implement password reuse prevention with 5-password history tracking
   - Implement login endpoint with JWT token generation and refresh token rotation
   - Implement logout endpoint with token blacklist (Redis)
   - Implement password reset flow with email verification
   - Add rate limiting to prevent brute force attacks
   - Add device fingerprinting for security
-  - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6_
+  - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.5.1, 1.5.2, 1.5.3, 1.5.4, 1.5.5_
 
-- [ ] 2.2 Write property test for authentication round trip
+- [ ] 2.2 Write property test for password strength validation
+  - **Property 2: Password Strength Validation**
+  - **Validates: Requirements 1.5.1, 1.5.2, 1.5.3**
+
+- [ ] 2.2a Write property test for password reuse prevention
+  - **Property 3: Password Reuse Prevention**
+  - **Validates: Requirements 1.5.4, 1.5.5**
+
+- [ ] 2.3 Write property test for authentication round trip
   - **Property 1: Authentication Round Trip**
   - **Validates: Requirements 1.1, 1.3, 1.4**
 
-- [ ] 2.3 Implement User Profile Service (.NET 10)
+- [ ] 2.4 Implement User Profile Service (.NET 10)
   - Create ASP.NET Core Minimal API project
   - Implement user profile CRUD endpoints
   - Implement user preferences endpoints (goals, equipment, experience level)
@@ -92,7 +102,7 @@ FitQuest is implemented across two platforms: iOS (React Native/TypeScript) for 
   - Implement profile visibility controls
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6_
 
-- [ ] 2.4 Implement Workout Service (.NET 10)
+- [ ] 2.5 Implement Workout Service (.NET 10)
   - Create ASP.NET Core Minimal API project
   - Implement POST /workouts endpoint for workout creation
   - Implement GET /workouts endpoint with pagination
@@ -103,11 +113,11 @@ FitQuest is implemented across two platforms: iOS (React Native/TypeScript) for 
   - Publish WorkoutCompleted event to message queue
   - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7_
 
-- [ ] 2.5 Write property test for workout creation and storage
+- [ ] 2.6 Write property test for workout creation and storage
   - **Property 4: Workout Creation and Storage**
   - **Validates: Requirements 5.1, 5.2, 5.3, 5.4, 5.7**
 
-- [ ] 2.6 Implement XP & Progression Service (.NET 10)
+- [ ] 2.7 Implement XP & Progression Service (.NET 10)
   - Create ASP.NET Core Minimal API project
   - Implement XP calculation engine: max(volume / 100, 10) × difficulty multiplier
   - Implement difficulty multiplier logic (compound: 1.2x, isolation: 1.0x, cardio: 0.8x)
@@ -119,19 +129,19 @@ FitQuest is implemented across two platforms: iOS (React Native/TypeScript) for 
   - Publish LevelUp and RankUp events
   - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 5.5_
 
-- [ ] 2.7 Write property test for XP calculation correctness
+- [ ] 2.8 Write property test for XP calculation correctness
   - **Property 5: XP Calculation Correctness**
   - **Validates: Requirements 5.5, 6.1**
 
-- [ ] 2.8 Write property test for level progression
+- [ ] 2.9 Write property test for level progression
   - **Property 6: Level Progression**
   - **Validates: Requirements 6.2**
 
-- [ ] 2.9 Write property test for muscle group rank tracking
+- [ ] 2.10 Write property test for muscle group rank tracking
   - **Property 7: Muscle Group Rank Tracking**
   - **Validates: Requirements 6.4, 6.5**
 
-- [ ] 2.10 Implement Streak Tracking System (.NET 10)
+- [ ] 2.11 Implement Streak Tracking System (.NET 10)
   - Create streak increment logic (24-hour UTC window)
   - Implement streak reset logic
   - Create longest streak preservation
@@ -139,15 +149,15 @@ FitQuest is implemented across two platforms: iOS (React Native/TypeScript) for 
   - Publish StreakMilestone events
   - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5_
 
-- [ ] 2.11 Write property test for streak increment and reset
+- [ ] 2.12 Write property test for streak increment and reset
   - **Property 8: Streak Increment and Reset**
   - **Validates: Requirements 7.1, 7.2, 7.3, 7.5**
 
-- [ ] 2.12 Write property test for streak milestone rewards
+- [ ] 2.13 Write property test for streak milestone rewards
   - **Property 9: Streak Milestone Rewards**
   - **Validates: Requirements 7.4**
 
-- [ ] 2.13 Implement Exercise Library Service (.NET 10)
+- [ ] 2.14 Implement Exercise Library Service (.NET 10)
   - Create ASP.NET Core Minimal API project
   - Create exercise database with 200+ exercises
   - Implement exercise search and filtering by muscle group
@@ -156,7 +166,7 @@ FitQuest is implemented across two platforms: iOS (React Native/TypeScript) for 
   - Implement custom exercise support (user-specific)
   - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.8, 4.9_
 
-- [ ] 2.14 Implement Sync Service (.NET 10)
+- [ ] 2.15 Implement Sync Service (.NET 10)
   - Create ASP.NET Core Minimal API project
   - Implement POST /sync/pull endpoint for pulling changes from cloud
   - Implement POST /sync/push endpoint for pushing local changes to cloud
@@ -166,11 +176,11 @@ FitQuest is implemented across two platforms: iOS (React Native/TypeScript) for 
   - Implement exponential backoff retry logic (1s, 2s, 4s, 8s)
   - _Requirements: 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
 
-- [ ] 2.15 Write property test for sync conflict resolution
+- [ ] 2.16 Write property test for sync conflict resolution
   - **Property 19: Sync Conflict Resolution**
   - **Validates: Requirements 24.4**
 
-- [ ] 2.16 Implement iOS Authentication and Sync (React Native/TypeScript)
+- [ ] 2.17 Implement iOS Authentication and Sync (React Native/TypeScript)
   - Create AuthenticationService with login/register/logout methods
   - Implement secure token storage using Keychain
   - Create JWT token refresh logic with automatic refresh before expiration
@@ -181,7 +191,7 @@ FitQuest is implemented across two platforms: iOS (React Native/TypeScript) for 
   - Implement last-write-wins conflict resolution
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
 
-- [ ] 2.17 Implement iOS Workout Logger (React Native/TypeScript)
+- [ ] 2.18 Implement iOS Workout Logger (React Native/TypeScript)
   - Create WorkoutLogger service with start/end time tracking
   - Implement exercise selection and set/rep/weight entry
   - Create volume calculation (weight × reps × sets)
@@ -189,7 +199,7 @@ FitQuest is implemented across two platforms: iOS (React Native/TypeScript) for 
   - Add offline storage to sync queue
   - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7_
 
-- [ ] 2.18 Implement iOS User Profile and Onboarding (React Native/TypeScript)
+- [ ] 2.19 Implement iOS User Profile and Onboarding (React Native/TypeScript)
   - Create UserProfileService with profile CRUD operations
   - Implement profile picture upload and caching
   - Create preference management UI and storage
@@ -198,13 +208,13 @@ FitQuest is implemented across two platforms: iOS (React Native/TypeScript) for 
   - Create onboarding completion logic that initializes user at Level 1 with 0 XP
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6_
 
-- [ ] 2.19 Implement iOS Exercise Library (React Native/TypeScript)
+- [ ] 2.20 Implement iOS Exercise Library (React Native/TypeScript)
   - Create ExerciseLibraryService with local caching
   - Implement fuzzy search with offline support
   - Create exercise selection UI for workout logging
   - _Requirements: 4.1, 4.2, 4.3, 4.6_
 
-- [ ] 2.20 Checkpoint - Ensure all core service tests pass
+- [ ] 2.21 Checkpoint - Ensure all core service tests pass
   - Ensure all unit and property tests pass for authentication, profiles, workouts, XP, and sync
   - Verify offline functionality works correctly
   - Verify microservice communication via API Gateway

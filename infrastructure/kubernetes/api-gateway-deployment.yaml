@@ -1,0 +1,282 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: fitquest
+  labels:
+    app: api-gateway
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: api-gateway
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:latest
+        ports:
+        - containerPort: 80
+          name: http
+        - containerPort: 443
+          name: https
+        volumeMounts:
+        - name: nginx-config
+          mountPath: /etc/nginx/nginx.conf
+          subPath: nginx.conf
+        - name: tls-certs
+          mountPath: /etc/nginx/certs
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 80
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: nginx-config
+        configMap:
+          name: nginx-config
+      - name: tls-certs
+        secret:
+          secretName: api-gateway-tls
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway
+  namespace: fitquest
+  labels:
+    app: api-gateway
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80
+    targetPort: 80
+    protocol: TCP
+    name: http
+  - port: 443
+    targetPort: 443
+    protocol: TCP
+    name: https
+  selector:
+    app: api-gateway
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-config
+  namespace: fitquest
+data:
+  nginx.conf: |
+    user nginx;
+    worker_processes auto;
+    error_log /var/log/nginx/error.log warn;
+    pid /var/run/nginx.pid;
+
+    events {
+      worker_connections 1024;
+    }
+
+    http {
+      include /etc/nginx/mime.types;
+      default_type application/octet-stream;
+
+      log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                      '$status $body_bytes_sent "$http_referer" '
+                      '"$http_user_agent" "$http_x_forwarded_for"';
+
+      access_log /var/log/nginx/access.log main;
+
+      sendfile on;
+      tcp_nopush on;
+      tcp_nodelay on;
+      keepalive_timeout 65;
+      types_hash_max_size 2048;
+      client_max_body_size 20M;
+
+      # Rate limiting
+      limit_req_zone $binary_remote_addr zone=api_limit:10m rate=100r/s;
+      limit_req_zone $binary_remote_addr zone=auth_limit:10m rate=10r/s;
+
+      # Upstream services
+      upstream auth_service {
+        server auth-service:5000;
+      }
+
+      upstream user_profile_service {
+        server user-profile-service:5001;
+      }
+
+      upstream workout_service {
+        server workout-service:5002;
+      }
+
+      upstream xp_service {
+        server xp-service:5003;
+      }
+
+      upstream leaderboard_service {
+        server leaderboard-service:5004;
+      }
+
+      upstream social_service {
+        server social-service:5005;
+      }
+
+      upstream achievement_service {
+        server achievement-service:5006;
+      }
+
+      upstream sync_service {
+        server sync-service:5007;
+      }
+
+      upstream gps_service {
+        server gps-service:5008;
+      }
+
+      upstream body_tracking_service {
+        server body-tracking-service:5009;
+      }
+
+      upstream premium_service {
+        server premium-service:5010;
+      }
+
+      server {
+        listen 80;
+        server_name _;
+
+        location /health {
+          access_log off;
+          return 200 "healthy\n";
+          add_header Content-Type text/plain;
+        }
+
+        # Authentication endpoints
+        location /auth/ {
+          limit_req zone=auth_limit burst=20 nodelay;
+          proxy_pass http://auth_service;
+          proxy_set_header Host $host;
+          proxy_set_header X-Real-IP $remote_addr;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        # User Profile endpoints
+        location /users/ {
+          limit_req zone=api_limit burst=100 nodelay;
+          proxy_pass http://user_profile_service;
+          proxy_set_header Host $host;
+          proxy_set_header X-Real-IP $remote_addr;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        # Workout endpoints
+        location /workouts/ {
+          limit_req zone=api_limit burst=100 nodelay;
+          proxy_pass http://workout_service;
+          proxy_set_header Host $host;
+          proxy_set_header X-Real-IP $remote_addr;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        # XP endpoints
+        location /xp/ {
+          limit_req zone=api_limit burst=100 nodelay;
+          proxy_pass http://xp_service;
+          proxy_set_header Host $host;
+          proxy_set_header X-Real-IP $remote_addr;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        # Leaderboard endpoints
+        location /leaderboards/ {
+          limit_req zone=api_limit burst=100 nodelay;
+          proxy_pass http://leaderboard_service;
+          proxy_set_header Host $host;
+          proxy_set_header X-Real-IP $remote_addr;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        # Social endpoints
+        location /friends/ {
+          limit_req zone=api_limit burst=100 nodelay;
+          proxy_pass http://social_service;
+          proxy_set_header Host $host;
+          proxy_set_header X-Real-IP $remote_addr;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        # Achievement endpoints
+        location /achievements/ {
+          limit_req zone=api_limit burst=100 nodelay;
+          proxy_pass http://achievement_service;
+          proxy_set_header Host $host;
+          proxy_set_header X-Real-IP $remote_addr;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        # Sync endpoints
+        location /sync/ {
+          limit_req zone=api_limit burst=100 nodelay;
+          proxy_pass http://sync_service;
+          proxy_set_header Host $host;
+          proxy_set_header X-Real-IP $remote_addr;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        # GPS endpoints
+        location /gps/ {
+          limit_req zone=api_limit burst=100 nodelay;
+          proxy_pass http://gps_service;
+          proxy_set_header Host $host;
+          proxy_set_header X-Real-IP $remote_addr;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        # Body Tracking endpoints
+        location /body/ {
+          limit_req zone=api_limit burst=100 nodelay;
+          proxy_pass http://body_tracking_service;
+          proxy_set_header Host $host;
+          proxy_set_header X-Real-IP $remote_addr;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        # Premium endpoints
+        location /subscription/ {
+          limit_req zone=api_limit burst=100 nodelay;
+          proxy_pass http://premium_service;
+          proxy_set_header Host $host;
+          proxy_set_header X-Real-IP $remote_addr;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto $scheme;
+        }
+      }
+    }

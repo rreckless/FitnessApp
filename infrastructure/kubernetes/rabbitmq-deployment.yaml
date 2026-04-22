@@ -1,0 +1,266 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rabbitmq-config
+  namespace: fitquest
+data:
+  rabbitmq.conf: |
+    cluster_formation.peer_discovery_backend = rabbit_peer_discovery_k8s
+    cluster_formation.k8s.host = kubernetes.default.svc.cluster.local
+    cluster_formation.k8s.address_type = hostname
+    cluster_formation.node_cleanup.interval = 10
+    cluster_formation.node_cleanup.only_log_warning = true
+    cluster_partition_handling = autoheal
+    queue_master_location = min-masters
+    disk_free_limit.absolute = 50MB
+    management.load_definitions = /etc/rabbitmq/definitions.json
+  definitions.json: |
+    {
+      "vhosts": [
+        {
+          "name": "/"
+        }
+      ],
+      "exchanges": [
+        {
+          "name": "fitquest.events",
+          "vhost": "/",
+          "type": "topic",
+          "durable": true,
+          "auto_delete": false
+        }
+      ],
+      "queues": [
+        {
+          "name": "workout.completed",
+          "vhost": "/",
+          "durable": true,
+          "auto_delete": false
+        },
+        {
+          "name": "level.up",
+          "vhost": "/",
+          "durable": true,
+          "auto_delete": false
+        },
+        {
+          "name": "achievement.unlocked",
+          "vhost": "/",
+          "durable": true,
+          "auto_delete": false
+        },
+        {
+          "name": "streak.milestone",
+          "vhost": "/",
+          "durable": true,
+          "auto_delete": false
+        },
+        {
+          "name": "friendship.created",
+          "vhost": "/",
+          "durable": true,
+          "auto_delete": false
+        },
+        {
+          "name": "subscription.upgraded",
+          "vhost": "/",
+          "durable": true,
+          "auto_delete": false
+        },
+        {
+          "name": "dlq",
+          "vhost": "/",
+          "durable": true,
+          "auto_delete": false
+        }
+      ],
+      "bindings": [
+        {
+          "source": "fitquest.events",
+          "destination": "workout.completed",
+          "destination_type": "queue",
+          "routing_key": "workout.completed"
+        },
+        {
+          "source": "fitquest.events",
+          "destination": "level.up",
+          "destination_type": "queue",
+          "routing_key": "level.up"
+        },
+        {
+          "source": "fitquest.events",
+          "destination": "achievement.unlocked",
+          "destination_type": "queue",
+          "routing_key": "achievement.unlocked"
+        },
+        {
+          "source": "fitquest.events",
+          "destination": "streak.milestone",
+          "destination_type": "queue",
+          "routing_key": "streak.milestone"
+        },
+        {
+          "source": "fitquest.events",
+          "destination": "friendship.created",
+          "destination_type": "queue",
+          "routing_key": "friendship.created"
+        },
+        {
+          "source": "fitquest.events",
+          "destination": "subscription.upgraded",
+          "destination_type": "queue",
+          "routing_key": "subscription.upgraded"
+        }
+      ]
+    }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rabbitmq
+  namespace: fitquest
+spec:
+  serviceName: rabbitmq
+  replicas: 3
+  selector:
+    matchLabels:
+      app: rabbitmq
+  template:
+    metadata:
+      labels:
+        app: rabbitmq
+    spec:
+      serviceAccountName: rabbitmq
+      containers:
+      - name: rabbitmq
+        image: rabbitmq:3.12-management
+        ports:
+        - containerPort: 5672
+          name: amqp
+        - containerPort: 15672
+          name: management
+        env:
+        - name: RABBITMQ_DEFAULT_USER
+          valueFrom:
+            secretKeyRef:
+              name: rabbitmq-credentials
+              key: username
+        - name: RABBITMQ_DEFAULT_PASS
+          valueFrom:
+            secretKeyRef:
+              name: rabbitmq-credentials
+              key: password
+        - name: RABBITMQ_ERLANG_COOKIE
+          valueFrom:
+            secretKeyRef:
+              name: rabbitmq-credentials
+              key: erlang-cookie
+        volumeMounts:
+        - name: rabbitmq-config
+          mountPath: /etc/rabbitmq
+        - name: rabbitmq-data
+          mountPath: /var/lib/rabbitmq
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        livenessProbe:
+          exec:
+            command:
+            - rabbitmq-diagnostics
+            - ping
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - rabbitmq-diagnostics
+            - ping
+          initialDelaySeconds: 10
+          periodSeconds: 5
+      volumes:
+      - name: rabbitmq-config
+        configMap:
+          name: rabbitmq-config
+  volumeClaimTemplates:
+  - metadata:
+      name: rabbitmq-data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq
+  namespace: fitquest
+spec:
+  clusterIP: None
+  ports:
+  - port: 5672
+    targetPort: 5672
+    name: amqp
+  - port: 15672
+    targetPort: 15672
+    name: management
+  selector:
+    app: rabbitmq
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq-management
+  namespace: fitquest
+spec:
+  type: ClusterIP
+  ports:
+  - port: 15672
+    targetPort: 15672
+  selector:
+    app: rabbitmq
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rabbitmq-credentials
+  namespace: fitquest
+type: Opaque
+stringData:
+  username: fitquest
+  password: changeme-secure-password
+  erlang-cookie: fitquest-erlang-cookie
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: rabbitmq
+  namespace: fitquest
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: rabbitmq
+  namespace: fitquest
+rules:
+- apiGroups: [""]
+  resources: ["endpoints"]
+  verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: rabbitmq
+  namespace: fitquest
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: rabbitmq
+subjects:
+- kind: ServiceAccount
+  name: rabbitmq
+  namespace: fitquest

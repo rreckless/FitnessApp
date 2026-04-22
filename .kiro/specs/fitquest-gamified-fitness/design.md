@@ -111,8 +111,8 @@ FitQuest is a gamified fitness application that combines workout logging, progre
 The monolithic backend has been decomposed into 11 independent microservices, each with a specific responsibility and its own database where appropriate:
 
 #### 1. Authentication Service (.NET 10)
-**Responsibility**: User authentication, JWT token management, session handling
-**Database**: PostgreSQL (shared users table)
+**Responsibility**: User authentication, JWT token management, session handling, password security
+**Database**: PostgreSQL (shared users table, password_history table)
 **API Endpoints**:
 - `POST /auth/register` - Create new account
 - `POST /auth/login` - Authenticate user
@@ -120,10 +120,13 @@ The monolithic backend has been decomposed into 11 independent microservices, ea
 - `POST /auth/logout` - Invalidate session
 - `POST /auth/password-reset` - Request password reset
 - `POST /auth/password-reset/confirm` - Confirm reset with token
+- `POST /auth/validate-password` - Validate password strength (internal)
 
 **Key Features**:
 - JWT token generation and validation
 - Password hashing with bcrypt
+- Password strength validation (minimum 12 characters, uppercase, lowercase, number, special character)
+- Password reuse prevention with 5-password history tracking
 - Device fingerprinting for security
 - Token blacklist management via Redis
 - MFA support (TOTP)
@@ -603,6 +606,17 @@ The API Gateway routes requests to appropriate microservices. All endpoints are 
   lastSyncAt: DateTime
   subscriptionTier: Enum (FREE, PREMIUM)
   subscriptionExpiresAt: DateTime (optional)
+  lastPasswordChangeAt: DateTime
+}
+```
+
+#### PasswordHistory
+```
+{
+  id: UUID (primary key)
+  userId: UUID (foreign key)
+  passwordHash: String (bcrypt)
+  createdAt: DateTime
 }
 ```
 

@@ -1,0 +1,68 @@
+name: Build and Push Docker Images
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'services/**'
+      - '.github/workflows/build-and-push.yml'
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
+  ECR_REPOSITORY: fitquest
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service:
+          - auth-service
+          - user-profile-service
+          - workout-service
+          - xp-service
+          - leaderboard-service
+          - social-service
+          - achievement-service
+          - sync-service
+          - gps-service
+          - body-tracking-service
+          - premium-service
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v1
+
+    - name: Build Docker image
+      run: |
+        docker build -t ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ matrix.service }}-${{ github.sha }} \
+                     -t ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ matrix.service }}-latest \
+                     -f services/${{ matrix.service }}/Dockerfile \
+                     services/${{ matrix.service }}
+
+    - name: Push Docker image to ECR
+      run: |
+        docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ matrix.service }}-${{ github.sha }}
+        docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ matrix.service }}-latest
+
+    - name: Update Kubernetes deployment
+      run: |
+        aws eks update-kubeconfig --name fitquest-cluster --region ${{ env.AWS_REGION }}
+        kubectl set image deployment/${{ matrix.service }} \
+          ${{ matrix.service }}=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ matrix.service }}-${{ github.sha }} \
+          -n fitquest
+        kubectl rollout status deployment/${{ matrix.service }} -n fitquest
