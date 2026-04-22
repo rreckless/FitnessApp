@@ -52,6 +52,8 @@ services:
     build:
       context: .
       dockerfile: AuthenticationService/Dockerfile
+      args:
+        BUILDKIT_INLINE_CACHE: 1
     container_name: fitquest-auth-service
     environment:
       ASPNETCORE_ENVIRONMENT: Development

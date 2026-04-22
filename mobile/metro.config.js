@@ -1,25 +1,21 @@
-const { getDefaultConfig } = require('metro-config');
+const { getDefaultConfig, mergeConfig } = require('@react-native/metro-config');
 
-module.exports = (async () => {
-  const {
-    resolver: { sourceExts, assetExts },
-  } = await getDefaultConfig();
-  return {
-    project: {
-      ios: {},
-      android: {},
-    },
-    transformer: {
-      getTransformOptions: async () => ({
-        transform: {
-          experimentalImportSupport: false,
-          inlineRequires: false,
-        },
-      }),
-    },
-    resolver: {
-      assetExts: assetExts.filter((ext) => ext !== 'json'),
-      sourceExts: [...sourceExts, 'json'],
-    },
-  };
-})();
+const config = {
+  transformer: {
+    getTransformOptions: async () => ({
+      transform: {
+        experimentalImportSupport: false,
+        inlineRequires: false,
+      },
+    }),
+  },
+  resolver: {
+    sourceExts: ['ts', 'tsx', 'js', 'jsx', 'json'],
+  },
+  project: {
+    ios: {},
+    android: {},
+  },
+};
+
+module.exports = mergeConfig(getDefaultConfig(__dirname), config);

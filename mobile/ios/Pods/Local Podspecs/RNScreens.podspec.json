@@ -1,6 +1,6 @@
 {
   "name": "RNScreens",
-  "version": "3.20.0",
+  "version": "3.37.0",
   "summary": "Native navigation primitives for your React Native app.",
   "description": "RNScreens - first incomplete navigation solution for your React Native app",
   "homepage": "https://github.com/software-mansion/react-native-screens",
@@ -9,37 +9,32 @@
     "author": "author@domain.cn"
   },
   "platforms": {
-    "ios": "11.0",
-    "tvos": "11.0"
+    "ios": "9.0",
+    "tvos": "11.0",
+    "visionos": "1.0"
   },
   "source": {
     "git": "https://github.com/software-mansion/react-native-screens.git",
-    "tag": "3.20.0"
+    "tag": "3.37.0"
+  },
+  "source_files": [
+    "ios/**/*.{h,m,mm}",
+    "cpp/RNScreensTurboModule.cpp",
+    "cpp/RNScreensTurboModule.h"
+  ],
+  "project_header_files": "cpp/**/*.h",
+  "requires_arc": true,
+  "compiler_flags": "$(inherited) -DFOLLY_NO_CONFIG -DFOLLY_MOBILE=1 -DFOLLY_USE_LIBCPP=1 -DFOLLY_CFG_NO_COROUTINES=1 -Wno-comma -Wno-shorten-64-to-32",
+  "dependencies": {
+    "React-Core": [],
+    "RCT-Folly": [
+      "2022.05.16.00"
+    ],
+    "glog": [],
+    "React-RCTImage": []
   },
   "pod_target_xcconfig": {
-    "HEADER_SEARCH_PATHS": "\"$(PODS_ROOT)/boost\" \"$(PODS_ROOT)/boost-for-react-native\"  \"$(PODS_ROOT)/RCT-Folly\"",
-    "CLANG_CXX_LANGUAGE_STANDARD": "c++17"
-  },
-  "compiler_flags": "-DFOLLY_NO_CONFIG -DFOLLY_MOBILE=1 -DFOLLY_USE_LIBCPP=1 -Wno-comma -Wno-shorten-64-to-32 -DRN_FABRIC_ENABLED",
-  "source_files": "ios/**/*.{h,m,mm,cpp}",
-  "requires_arc": true,
-  "dependencies": {
-    "React": [],
-    "React-RCTFabric": [],
-    "React-Codegen": [],
-    "RCT-Folly": [],
-    "RCTRequired": [],
-    "RCTTypeSafety": [],
-    "ReactCommon/turbomodule/core": []
-  },
-  "subspecs": [
-    {
-      "name": "common",
-      "source_files": "common/cpp/**/*.{cpp,h}",
-      "header_dir": "rnscreens",
-      "pod_target_xcconfig": {
-        "HEADER_SEARCH_PATHS": "\"$(PODS_TARGET_SRCROOT)/common/cpp\""
-      }
-    }
-  ]
+    "HEADER_SEARCH_PATHS": "\"$(PODS_ROOT)/boost\" \"$(PODS_ROOT)/Headers/Private/Yoga\"",
+    "CLANG_CXX_LANGUAGE_STANDARD": "c++20"
+  }
 }

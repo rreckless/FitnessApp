@@ -33,7 +33,14 @@ public class RabbitMQEventBus : IEventBus
             DeliveryMode = DeliveryModes.Persistent
         };
 
-        await _channel.BasicPublishAsync(_exchangeName, routingKey, properties, body, cancellationToken);
+        await _channel.BasicPublishAsync(
+            exchange: _exchangeName,
+            routingKey: routingKey,
+            mandatory: false,
+            basicProperties: properties,
+            body: new ReadOnlyMemory<byte>(body),
+            cancellationToken: cancellationToken
+        );
     }
 
     public async Task SubscribeAsync<T>(Func<T, CancellationToken, Task> handler, CancellationToken cancellationToken = default) where T : class

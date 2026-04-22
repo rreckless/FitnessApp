@@ -33,7 +33,7 @@ public class AuthenticationServiceImpl : IAuthenticationService
             return new AuthResult { Success = false, Message = "User with this email already exists" };
         }
 
-        var passwordHash = BCrypt.HashPassword(password);
+        var passwordHash = BCrypt.Net.BCrypt.HashPassword(password);
         var user = new AuthUser
         {
             Id = Guid.NewGuid(),
@@ -80,7 +80,7 @@ public class AuthenticationServiceImpl : IAuthenticationService
         }
 
         var user = _dbContext.Users.FirstOrDefault(u => u.Email == email);
-        if (user == null || !BCrypt.Verify(password, user.PasswordHash))
+        if (user == null || !BCrypt.Net.BCrypt.Verify(password, user.PasswordHash))
         {
             return new AuthResult { Success = false, Message = "Invalid email or password" };
         }

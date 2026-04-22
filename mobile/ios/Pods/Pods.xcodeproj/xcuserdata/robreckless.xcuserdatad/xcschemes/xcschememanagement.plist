@@ -4,6 +4,11 @@
 <dict>
 	<key>SchemeUserState</key>
 	<dict>
+		<key>CocoaAsyncSocket.xcscheme</key>
+		<dict>
+			<key>isShown</key>
+			<false/>
+		</dict>
 		<key>DoubleConversion.xcscheme</key>
 		<dict>
 			<key>isShown</key>
@@ -15,6 +20,56 @@
 			<false/>
 		</dict>
 		<key>FBReactNativeSpec.xcscheme</key>
+		<dict>
+			<key>isShown</key>
+			<false/>
+		</dict>
+		<key>Flipper-Boost-iOSX.xcscheme</key>
+		<dict>
+			<key>isShown</key>
+			<false/>
+		</dict>
+		<key>Flipper-DoubleConversion.xcscheme</key>
+		<dict>
+			<key>isShown</key>
+			<false/>
+		</dict>
+		<key>Flipper-Fmt.xcscheme</key>
+		<dict>
+			<key>isShown</key>
+			<false/>
+		</dict>
+		<key>Flipper-Folly.xcscheme</key>
+		<dict>
+			<key>isShown</key>
+			<false/>
+		</dict>
+		<key>Flipper-Glog.xcscheme</key>
+		<dict>
+			<key>isShown</key>
+			<false/>
+		</dict>
+		<key>Flipper-PeerTalk.xcscheme</key>
+		<dict>
+			<key>isShown</key>
+			<false/>
+		</dict>
+		<key>Flipper.xcscheme</key>
+		<dict>
+			<key>isShown</key>
+			<false/>
+		</dict>
+		<key>FlipperKit.xcscheme</key>
+		<dict>
+			<key>isShown</key>
+			<false/>
+		</dict>
+		<key>OpenSSL-Universal.xcscheme</key>
+		<dict>
+			<key>isShown</key>
+			<false/>
+		</dict>
+		<key>Pods-FitQuest-FitQuestTests.xcscheme</key>
 		<dict>
 			<key>isShown</key>
 			<false/>
@@ -54,12 +109,17 @@
 			<key>isShown</key>
 			<false/>
 		</dict>
+		<key>RNScreens.xcscheme</key>
+		<dict>
+			<key>isShown</key>
+			<false/>
+		</dict>
 		<key>React-Codegen.xcscheme</key>
 		<dict>
 			<key>isShown</key>
 			<false/>
 		</dict>
-		<key>React-Core-AccessibilityResources.xcscheme</key>
+		<key>React-Core-RCTI18nStrings.xcscheme</key>
 		<dict>
 			<key>isShown</key>
 			<false/>
@@ -70,6 +130,26 @@
 			<false/>
 		</dict>
 		<key>React-CoreModules.xcscheme</key>
+		<dict>
+			<key>isShown</key>
+			<false/>
+		</dict>
+		<key>React-Fabric.xcscheme</key>
+		<dict>
+			<key>isShown</key>
+			<false/>
+		</dict>
+		<key>React-FabricImage.xcscheme</key>
+		<dict>
+			<key>isShown</key>
+			<false/>
+		</dict>
+		<key>React-ImageManager.xcscheme</key>
+		<dict>
+			<key>isShown</key>
+			<false/>
+		</dict>
+		<key>React-Mapbuffer.xcscheme</key>
 		<dict>
 			<key>isShown</key>
 			<false/>
@@ -95,6 +175,11 @@
 			<false/>
 		</dict>
 		<key>React-RCTBlob.xcscheme</key>
+		<dict>
+			<key>isShown</key>
+			<false/>
+		</dict>
+		<key>React-RCTFabric.xcscheme</key>
 		<dict>
 			<key>isShown</key>
 			<false/>
@@ -144,7 +229,17 @@
 			<key>isShown</key>
 			<false/>
 		</dict>
-		<key>React-jsc.xcscheme</key>
+		<key>React-graphics.xcscheme</key>
+		<dict>
+			<key>isShown</key>
+			<false/>
+		</dict>
+		<key>React-hermes.xcscheme</key>
+		<dict>
+			<key>isShown</key>
+			<false/>
+		</dict>
+		<key>React-jserrorhandler.xcscheme</key>
 		<dict>
 			<key>isShown</key>
 			<false/>
@@ -169,7 +264,17 @@
 			<key>isShown</key>
 			<false/>
 		</dict>
+		<key>React-nativeconfig.xcscheme</key>
+		<dict>
+			<key>isShown</key>
+			<false/>
+		</dict>
 		<key>React-perflogger.xcscheme</key>
+		<dict>
+			<key>isShown</key>
+			<false/>
+		</dict>
+		<key>React-rendererdebug.xcscheme</key>
 		<dict>
 			<key>isShown</key>
 			<false/>
@@ -229,12 +334,22 @@
 			<key>isShown</key>
 			<false/>
 		</dict>
-		<key>react-native-netinfo.xcscheme</key>
+		<key>hermes-engine.xcscheme</key>
 		<dict>
 			<key>isShown</key>
 			<false/>
 		</dict>
-		<key>react-native-safe-area-context.xcscheme</key>
+		<key>libevent.xcscheme</key>
+		<dict>
+			<key>isShown</key>
+			<false/>
+		</dict>
+		<key>react-native-geolocation-service.xcscheme</key>
+		<dict>
+			<key>isShown</key>
+			<false/>
+		</dict>
+		<key>react-native-netinfo.xcscheme</key>
 		<dict>
 			<key>isShown</key>
 			<false/>

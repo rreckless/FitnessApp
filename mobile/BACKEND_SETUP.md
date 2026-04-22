@@ -1,11 +1,26 @@
 # Backend Setup Guide
 
-The mobile app now uses real backend services for authentication. Follow these steps to get everything running.
+The mobile app now uses real backend services for authentication. You have two options:
+
+## Option 1: Docker (Recommended if Docker works)
+
+See instructions below.
+
+## Option 2: Local Setup (If Docker has issues)
+
+If Docker build is failing, run the backend locally:
+- See `LOCAL_BACKEND_SETUP.md` for detailed instructions
+- Requires: .NET 8 SDK, PostgreSQL, Redis
+- Simpler debugging and faster iteration
+
+---
+
+# Docker Setup
 
 ## Prerequisites
 
 - Docker and Docker Compose installed
-- .NET 10 SDK (optional, Docker handles it)
+- .NET 8 SDK (optional, Docker handles it)
 - PostgreSQL, Redis, and RabbitMQ will run in Docker containers
 
 ## Starting the Backend (Quick Start)
@@ -14,7 +29,13 @@ For testing authentication only, run just the essential services:
 
 ```bash
 cd backend-dotnet
-docker-compose up
+
+# First, restore NuGet packages locally (fixes Docker network issues)
+chmod +x prepare-docker.sh
+./prepare-docker.sh
+
+# Then start Docker
+docker-compose up --build
 ```
 
 This starts:
