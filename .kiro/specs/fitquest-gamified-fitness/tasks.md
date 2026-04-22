@@ -85,7 +85,7 @@ FitQuest is implemented across two platforms: iOS (React Native/TypeScript) for 
   - **Property 2: Password Strength Validation**
   - **Validates: Requirements 1.5.1, 1.5.2, 1.5.3**
 
-- [-] 2.2a Write property test for password reuse prevention
+- [x] 2.2a Write property test for password reuse prevention
   - **Property 3: Password Reuse Prevention**
   - **Validates: Requirements 1.5.4, 1.5.5**
 
@@ -93,7 +93,7 @@ FitQuest is implemented across two platforms: iOS (React Native/TypeScript) for 
   - **Property 1: Authentication Round Trip**
   - **Validates: Requirements 1.1, 1.3, 1.4**
 
-- [ ] 2.4 Implement User Profile Service (.NET 10)
+- [x] 2.4 Implement User Profile Service (.NET 10)
   - Create ASP.NET Core Minimal API project
   - Implement user profile CRUD endpoints
   - Implement user preferences endpoints (goals, equipment, experience level)
@@ -102,7 +102,7 @@ FitQuest is implemented across two platforms: iOS (React Native/TypeScript) for 
   - Implement profile visibility controls
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6_
 
-- [ ] 2.5 Implement Workout Service (.NET 10)
+- [x] 2.5 Implement Workout Service (.NET 10)
   - Create ASP.NET Core Minimal API project
   - Implement POST /workouts endpoint for workout creation
   - Implement GET /workouts endpoint with pagination
@@ -113,11 +113,11 @@ FitQuest is implemented across two platforms: iOS (React Native/TypeScript) for 
   - Publish WorkoutCompleted event to message queue
   - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7_
 
-- [ ] 2.6 Write property test for workout creation and storage
+- [x] 2.6 Write property test for workout creation and storage
   - **Property 4: Workout Creation and Storage**
   - **Validates: Requirements 5.1, 5.2, 5.3, 5.4, 5.7**
 
-- [ ] 2.7 Implement XP & Progression Service (.NET 10)
+- [x] 2.7 Implement XP & Progression Service (.NET 10)
   - Create ASP.NET Core Minimal API project
   - Implement XP calculation engine: max(volume / 100, 10) × difficulty multiplier
   - Implement difficulty multiplier logic (compound: 1.2x, isolation: 1.0x, cardio: 0.8x)
@@ -129,19 +129,19 @@ FitQuest is implemented across two platforms: iOS (React Native/TypeScript) for 
   - Publish LevelUp and RankUp events
   - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 5.5_
 
-- [ ] 2.8 Write property test for XP calculation correctness
+- [x] 2.8 Write property test for XP calculation correctness
   - **Property 5: XP Calculation Correctness**
   - **Validates: Requirements 5.5, 6.1**
 
-- [ ] 2.9 Write property test for level progression
+- [x] 2.9 Write property test for level progression
   - **Property 6: Level Progression**
   - **Validates: Requirements 6.2**
 
-- [ ] 2.10 Write property test for muscle group rank tracking
+- [x] 2.10 Write property test for muscle group rank tracking
   - **Property 7: Muscle Group Rank Tracking**
   - **Validates: Requirements 6.4, 6.5**
 
-- [ ] 2.11 Implement Streak Tracking System (.NET 10)
+- [x] 2.11 Implement Streak Tracking System (.NET 10)
   - Create streak increment logic (24-hour UTC window)
   - Implement streak reset logic
   - Create longest streak preservation
@@ -149,7 +149,7 @@ FitQuest is implemented across two platforms: iOS (React Native/TypeScript) for 
   - Publish StreakMilestone events
   - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5_
 
-- [ ] 2.12 Write property test for streak increment and reset
+- [x] 2.12 Write property test for streak increment and reset
   - **Property 8: Streak Increment and Reset**
   - **Validates: Requirements 7.1, 7.2, 7.3, 7.5**
 
