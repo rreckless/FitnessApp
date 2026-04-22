@@ -1,0 +1,41 @@
+name: FitQuest
+options:
+  bundleIdPrefix: org.reactjs.native.example
+  deploymentTarget:
+    iOS: "15.0"
+  useBaseInternationalization: true
+
+targets:
+  FitQuest:
+    type: application
+    platform: iOS
+    deploymentTarget: "15.0"
+    sources:
+      - path: FitQuest
+        createIntermediateGroups: true
+    resources:
+      - path: FitQuest/Images.xcassets
+      - path: FitQuest/LaunchScreen.storyboard
+      - path: FitQuest/Info.plist
+      - path: FitQuest/PrivacyInfo.xcprivacy
+    settings:
+      PRODUCT_NAME: FitQuest
+      PRODUCT_BUNDLE_IDENTIFIER: org.reactjs.native.example.fitquest
+      INFOPLIST_FILE: FitQuest/Info.plist
+      IPHONEOS_DEPLOYMENT_TARGET: "15.0"
+      SWIFT_VERSION: "5.0"
+      TARGETED_DEVICE_FAMILY: "1,2"
+      SUPPORTED_PLATFORMS: "iphoneos iphonesimulator"
+      ENABLE_BITCODE: "NO"
+      OTHER_LDFLAGS: "$(inherited) -ObjC -lc++"
+      CLANG_ENABLE_MODULES: "YES"
+      MARKETING_VERSION: "1.0"
+      CURRENT_PROJECT_VERSION: "1"
+    buildPhases:
+      - type: shell
+        name: "Bundle React Native code and images"
+        script: |
+          set -e
+          WITH_ENVIRONMENT="$REACT_NATIVE_PATH/scripts/xcode/with-environment.sh"
+          REACT_NATIVE_XCODE="$REACT_NATIVE_PATH/scripts/react-native-xcode.sh"
+          /bin/sh -c "\"$WITH_ENVIRONMENT\" \"$REACT_NATIVE_XCODE\""
