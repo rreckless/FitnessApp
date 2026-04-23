@@ -707,10 +707,10 @@ export class UserProfileService {
   private mapRowToUserPreferences(row: any): UserPreferences {
     return {
       userId: row.userId,
-      fitnessGoals: JSON.parse(row.fitnessGoals),
+      fitnessGoals: row.fitnessGoals ? JSON.parse(row.fitnessGoals) : [],
       experienceLevel: row.experienceLevel,
       workoutFrequency: row.workoutFrequency,
-      availableEquipment: JSON.parse(row.availableEquipment),
+      availableEquipment: row.availableEquipment ? JSON.parse(row.availableEquipment) : [],
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
       syncedAt: row.syncedAt,
