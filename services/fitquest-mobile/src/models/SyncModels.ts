@@ -10,6 +10,8 @@ export enum SyncOperation {
 }
 
 export enum SyncEntityType {
+  USER = 'USER',
+  USER_PREFERENCES = 'USER_PREFERENCES',
   WORKOUT = 'WORKOUT',
   WEIGHT = 'WEIGHT',
   MEASUREMENT = 'MEASUREMENT',

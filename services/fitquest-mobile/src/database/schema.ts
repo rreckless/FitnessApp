@@ -13,11 +13,41 @@ export const SCHEMA = {
       id TEXT PRIMARY KEY,
       email TEXT UNIQUE NOT NULL,
       name TEXT NOT NULL,
-      profilePicture TEXT,
+      profilePictureUrl TEXT,
       bio TEXT,
+      level INTEGER DEFAULT 1,
+      totalXP INTEGER DEFAULT 0,
+      currentStreak INTEGER DEFAULT 0,
+      longestStreak INTEGER DEFAULT 0,
+      subscriptionTier TEXT DEFAULT 'FREE',
       createdAt TEXT NOT NULL,
       updatedAt TEXT NOT NULL,
       syncedAt TEXT
+    )
+  `,
+
+  user_preferences: `
+    CREATE TABLE IF NOT EXISTS user_preferences (
+      userId TEXT PRIMARY KEY,
+      fitnessGoals TEXT NOT NULL,
+      experienceLevel TEXT NOT NULL,
+      workoutFrequency INTEGER NOT NULL,
+      availableEquipment TEXT NOT NULL,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL,
+      syncedAt TEXT,
+      FOREIGN KEY (userId) REFERENCES users(id)
+    )
+  `,
+
+  profile_picture_cache: `
+    CREATE TABLE IF NOT EXISTS profile_picture_cache (
+      userId TEXT PRIMARY KEY,
+      url TEXT NOT NULL,
+      thumbnailUrl TEXT,
+      cachedAt TEXT NOT NULL,
+      expiresAt TEXT NOT NULL,
+      FOREIGN KEY (userId) REFERENCES users(id)
     )
   `,
 
@@ -241,6 +271,8 @@ export const SCHEMA = {
 
 // Create indexes for better query performance
 export const INDEXES = {
+  users_email: 'CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)',
+  user_preferences_userId: 'CREATE INDEX IF NOT EXISTS idx_user_preferences_userId ON user_preferences(userId)',
   workouts_userId: 'CREATE INDEX IF NOT EXISTS idx_workouts_userId ON workouts(userId)',
   workouts_createdAt: 'CREATE INDEX IF NOT EXISTS idx_workouts_createdAt ON workouts(createdAt)',
   workout_exercises_workoutId: 'CREATE INDEX IF NOT EXISTS idx_workout_exercises_workoutId ON workout_exercises(workoutId)',
