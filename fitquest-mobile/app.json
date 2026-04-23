@@ -1,0 +1,28 @@
+{
+  "name": "fitquest-mobile",
+  "displayName": "FitQuest",
+  "version": "1.0.0",
+  "description": "FitQuest - Gamified Fitness App",
+  "expo": {
+    "name": "FitQuest",
+    "slug": "fitquest",
+    "version": "1.0.0",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTabletMode": true,
+      "bundleIdentifier": "com.fitquest.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "package": "com.fitquest.app"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}
