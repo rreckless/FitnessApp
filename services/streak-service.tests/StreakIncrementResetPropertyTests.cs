@@ -539,4 +539,50 @@ public static class StreakGenerators
     public static Arbitrary<int> ValidMultipleDayGap() =>
         Arb.Default.Int32()
             .Filter(x => x >= 2 && x <= 10);
+
+    /// <summary>
+    /// Generates valid milestone days: 7, 14, 30, 60, 100
+    /// </summary>
+    public static Gen<int> ValidStreakDays()
+    {
+        return Gen.Elements(7, 14, 30, 60, 100);
+    }
+
+    /// <summary>
+    /// Generates non-milestone streak days (1-150 excluding milestones)
+    /// </summary>
+    public static Gen<int> NonMilestoneStreakDays()
+    {
+        var milestones = new[] { 7, 14, 30, 60, 100 };
+        return Gen.Choose(1, 150)
+            .Where(d => !milestones.Contains(d));
+    }
+
+    /// <summary>
+    /// Generates random streak days from 1 to 150
+    /// </summary>
+    public static Gen<int> RandomStreakDays()
+    {
+        return Gen.Choose(1, 150);
+    }
+
+    /// <summary>
+    /// Generates pairs of sequential milestones for testing multiple milestone achievement
+    /// </summary>
+    public static Gen<(int, int)> SequentialMilestones()
+    {
+        var milestones = new[] { 7, 14, 30, 60, 100 };
+        return Gen.Elements(
+            (7, 14),
+            (7, 30),
+            (7, 60),
+            (7, 100),
+            (14, 30),
+            (14, 60),
+            (14, 100),
+            (30, 60),
+            (30, 100),
+            (60, 100)
+        );
+    }
 }

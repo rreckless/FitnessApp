@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: exercise-library-service
+  namespace: fitquest
+  labels:
+    app: exercise-library-service
+spec:
+  type: ClusterIP
+  selector:
+    app: exercise-library-service
+  ports:
+  - name: http
+    port: 80
+    targetPort: http
+    protocol: TCP
+  sessionAffinity: None

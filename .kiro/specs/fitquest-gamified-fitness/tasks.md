@@ -153,11 +153,11 @@ FitQuest is implemented across two platforms: iOS (React Native/TypeScript) for 
   - **Property 8: Streak Increment and Reset**
   - **Validates: Requirements 7.1, 7.2, 7.3, 7.5**
 
-- [ ] 2.13 Write property test for streak milestone rewards
+- [x] 2.13 Write property test for streak milestone rewards
   - **Property 9: Streak Milestone Rewards**
   - **Validates: Requirements 7.4**
 
-- [ ] 2.14 Implement Exercise Library Service (.NET 10)
+- [x] 2.14 Implement Exercise Library Service (.NET 10)
   - Create ASP.NET Core Minimal API project
   - Create exercise database with 200+ exercises
   - Implement exercise search and filtering by muscle group
@@ -166,7 +166,7 @@ FitQuest is implemented across two platforms: iOS (React Native/TypeScript) for 
   - Implement custom exercise support (user-specific)
   - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.8, 4.9_
 
-- [ ] 2.15 Implement Sync Service (.NET 10)
+- [x] 2.15 Implement Sync Service (.NET 10)
   - Create ASP.NET Core Minimal API project
   - Implement POST /sync/pull endpoint for pulling changes from cloud
   - Implement POST /sync/push endpoint for pushing local changes to cloud
@@ -176,11 +176,11 @@ FitQuest is implemented across two platforms: iOS (React Native/TypeScript) for 
   - Implement exponential backoff retry logic (1s, 2s, 4s, 8s)
   - _Requirements: 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
 
-- [ ] 2.16 Write property test for sync conflict resolution
+- [x] 2.16 Write property test for sync conflict resolution
   - **Property 19: Sync Conflict Resolution**
   - **Validates: Requirements 24.4**
 
-- [ ] 2.17 Implement iOS Authentication and Sync (React Native/TypeScript)
+- [x] 2.17 Implement iOS Authentication and Sync (React Native/TypeScript)
   - Create AuthenticationService with login/register/logout methods
   - Implement secure token storage using Keychain
   - Create JWT token refresh logic with automatic refresh before expiration
@@ -191,7 +191,7 @@ FitQuest is implemented across two platforms: iOS (React Native/TypeScript) for 
   - Implement last-write-wins conflict resolution
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 24.1, 24.2, 24.3, 24.4, 24.5, 24.6_
 
-- [ ] 2.18 Implement iOS Workout Logger (React Native/TypeScript)
+- [x] 2.18 Implement iOS Workout Logger (React Native/TypeScript)
   - Create WorkoutLogger service with start/end time tracking
   - Implement exercise selection and set/rep/weight entry
   - Create volume calculation (weight × reps × sets)

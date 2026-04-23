@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("StreakService.Tests")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+6816cafd4c2ebeac494057b36475e5ed672c95c7")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+ba3b53948ac2fc02074e2e91efecdaaa21413be0")]
 [assembly: System.Reflection.AssemblyProductAttribute("StreakService.Tests")]
 [assembly: System.Reflection.AssemblyTitleAttribute("StreakService.Tests")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
