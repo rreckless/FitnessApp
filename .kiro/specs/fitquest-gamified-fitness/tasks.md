@@ -199,7 +199,7 @@ FitQuest is implemented across two platforms: iOS (React Native/TypeScript) for 
   - Add offline storage to sync queue
   - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7_
 
-- [ ] 2.19 Implement iOS User Profile and Onboarding (React Native/TypeScript)
+- [x] 2.19 Implement iOS User Profile and Onboarding (React Native/TypeScript)
   - Create UserProfileService with profile CRUD operations
   - Implement profile picture upload and caching
   - Create preference management UI and storage
@@ -208,13 +208,13 @@ FitQuest is implemented across two platforms: iOS (React Native/TypeScript) for 
   - Create onboarding completion logic that initializes user at Level 1 with 0 XP
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6_
 
-- [ ] 2.20 Implement iOS Exercise Library (React Native/TypeScript)
+- [x] 2.20 Implement iOS Exercise Library (React Native/TypeScript)
   - Create ExerciseLibraryService with local caching
   - Implement fuzzy search with offline support
   - Create exercise selection UI for workout logging
   - _Requirements: 4.1, 4.2, 4.3, 4.6_
 
-- [ ] 2.21 Checkpoint - Ensure all core service tests pass
+- [x] 2.21 Checkpoint - Ensure all core service tests pass
   - Ensure all unit and property tests pass for authentication, profiles, workouts, XP, and sync
   - Verify offline functionality works correctly
   - Verify microservice communication via API Gateway
