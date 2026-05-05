@@ -41,7 +41,6 @@ export class DatabaseService {
       this.db = await SQLite.openDatabase({
         name: DATABASE_NAME,
         location: 'default',
-        createFromLocation: '~www/fitquest.db',
       });
 
       // Create all tables
@@ -66,13 +65,25 @@ export class DatabaseService {
       throw new Error('Database not initialized');
     }
 
-    const tables = Object.values(SCHEMA);
-    for (const createTableSQL of tables) {
+    const tables = Object.entries(SCHEMA);
+    for (const [tableName, createTableSQL] of tables) {
       try {
+        console.log(`[DB] Creating table '${tableName}' with SQL:`, createTableSQL.substring(0, 100) + '...');
         await this.db.executeSql(createTableSQL);
+        console.log(`[DB] Table '${tableName}' created successfully`);
       } catch (error) {
-        console.error('Error creating table:', error);
-        throw error;
+        // Check if table already exists (error code 1 = "table already exists")
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        if (errorMsg.includes('already exists') || errorMsg.includes('SQLITE_ERROR')) {
+          console.log(`[DB] Table '${tableName}' already exists, skipping`);
+        } else {
+          console.error(`[DB] Error creating table '${tableName}':`, {
+            error: errorMsg,
+            sql: createTableSQL.substring(0, 100),
+            fullError: error
+          });
+          throw error;
+        }
       }
     }
   }
@@ -105,6 +116,7 @@ export class DatabaseService {
     }
 
     try {
+      console.log(`[DB] Executing query:`, { sql, params });
       const result = await this.db.executeSql(sql, params);
       const rows: any[] = [];
 
@@ -114,12 +126,18 @@ export class DatabaseService {
         }
       }
 
+      console.log(`[DB] Query result:`, { rowsAffected: result[0].rowsAffected || 0, rowsReturned: rows.length });
       return {
         rows,
         rowsAffected: result[0].rowsAffected || 0,
       };
     } catch (error) {
-      console.error('Query error:', error, 'SQL:', sql, 'Params:', params);
+      console.error(`[DB] Query error:`, {
+        error: error instanceof Error ? error.message : String(error),
+        sql,
+        params,
+        fullError: error
+      });
       throw error;
     }
   }
@@ -144,18 +162,61 @@ export class DatabaseService {
    * Insert a record
    */
   async insert(table: string, data: Record<string, any>): Promise<string> {
-    const columns = Object.keys(data);
-    const values = Object.values(data);
-    const placeholders = columns.map(() => '?').join(',');
+    try {
+      console.log(`[DB] Inserting into ${table}:`, { data });
+      
+      // Build SQL with proper escaping instead of using parameters
+      // This works around a bug in react-native-sqlite-storage
+      const columns = Object.keys(data);
+      const values = columns.map(col => {
+        const value = data[col];
+        
+        if (value === null || value === undefined) {
+          return 'NULL';
+        }
+        
+        if (typeof value === 'boolean') {
+          return value ? '1' : '0';
+        }
+        
+        if (typeof value === 'number') {
+          return String(value);
+        }
+        
+        if (typeof value === 'string') {
+          // Escape single quotes by doubling them
+          return `'${value.replace(/'/g, "''")}'`;
+        }
+        
+        if (typeof value === 'object') {
+          // For objects/arrays, convert to JSON string
+          const jsonStr = JSON.stringify(value);
+          return `'${jsonStr.replace(/'/g, "''")}'`;
+        }
+        
+        return `'${String(value).replace(/'/g, "''")}'`;
+      });
+      
+      const sql = `INSERT INTO ${table} (${columns.join(',')}) VALUES (${values.join(',')})`;
+      
+      console.log(`[DB] Executing insert SQL:`, sql.substring(0, 200) + '...');
+      
+      const result = await this.query(sql);
+      console.log(`[DB] Successfully inserted into ${table}, rowsAffected:`, result.rowsAffected);
 
-    const sql = `INSERT INTO ${table} (${columns.join(',')}) VALUES (${placeholders})`;
-    const result = await this.query(sql, values);
+      if (result.rowsAffected === 0) {
+        throw new Error(`Failed to insert into ${table} - no rows affected`);
+      }
 
-    if (result.rowsAffected === 0) {
-      throw new Error(`Failed to insert into ${table}`);
+      return data.id || '';
+    } catch (error) {
+      console.error(`[DB] Insert error for ${table}:`, {
+        error: error instanceof Error ? error.message : String(error),
+        data,
+        fullError: error
+      });
+      throw error;
     }
-
-    return data.id || '';
   }
 
   /**

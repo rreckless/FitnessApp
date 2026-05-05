@@ -17,6 +17,9 @@ import {
   Platform,
 } from 'react-native';
 import { AuthenticationService } from '../services/AuthenticationService';
+import { UserProfileService } from '../services/UserProfileService';
+import DatabaseService from '../database/DatabaseService';
+import { SyncEngine } from '../services/SyncEngine';
 import { AuthException } from '../models/AuthModels';
 
 interface RegisterScreenProps {
@@ -82,19 +85,41 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({
 
     setLoading(true);
     try {
+      console.log('Starting registration process...');
+      
       const authService = AuthenticationService.getInstance();
+      console.log('AuthenticationService obtained');
+      
       await authService.register({
         name,
         email,
         password,
       });
+      console.log('Backend registration successful');
 
+      // Get the session to retrieve user ID
+      const session = await authService.getSession();
+      console.log('Session retrieved:', session?.userId);
+      
+      if (!session?.userId) {
+        throw new Error('No user ID returned from registration');
+      }
+
+      // Skip local database insert during registration
+      // The user profile will be created during onboarding completion
+      // This avoids SQLite library issues and is more efficient
+      console.log('Skipping local database insert during registration');
+      console.log('User profile will be created during onboarding completion');
+
+      console.log('Registration complete, proceeding to next screen');
       onRegisterSuccess();
     } catch (error) {
+      console.error('Registration error:', error);
+      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred';
       if (error instanceof AuthException) {
         Alert.alert('Registration Failed', error.message);
       } else {
-        Alert.alert('Error', 'An unexpected error occurred');
+        Alert.alert('Registration Error', errorMessage);
       }
     } finally {
       setLoading(false);

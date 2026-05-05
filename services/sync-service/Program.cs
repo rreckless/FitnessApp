@@ -69,8 +69,18 @@ app.MapGet("/health", () => Results.Ok(new { status = "healthy" }))
 // Run migrations
 using (var scope = app.Services.CreateScope())
 {
-    var db = scope.ServiceProvider.GetRequiredService<SyncDbContext>();
-    db.Database.Migrate();
+    try
+    {
+        var db = scope.ServiceProvider.GetRequiredService<SyncDbContext>();
+        Log.Information("Starting database migration...");
+        db.Database.Migrate();
+        Log.Information("Database migration completed successfully");
+    }
+    catch (Exception ex)
+    {
+        Log.Error(ex, "Failed to run database migrations");
+        throw;
+    }
 }
 
 app.Run();

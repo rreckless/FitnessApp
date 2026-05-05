@@ -60,9 +60,16 @@ export interface SyncStatus {
 }
 
 export interface PullResponse {
-  data: Record<string, any>[];
-  timestamp: number;
-  hasMore: boolean;
+  changes: CloudChange[];
+  syncedAt: string;
+}
+
+export interface CloudChange {
+  operation: string;
+  entityType: string;
+  entityId: string;
+  payload: string;
+  updatedAt: string;
 }
 
 export interface PushRequest {

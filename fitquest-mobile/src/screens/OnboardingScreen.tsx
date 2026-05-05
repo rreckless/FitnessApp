@@ -19,6 +19,7 @@ import {
   FitnessGoal,
   ExperienceLevel,
   Equipment,
+  OnboardingState,
 } from '../models/UserProfileModels';
 
 interface OnboardingScreenProps {
@@ -42,23 +43,53 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
   const [loading, setLoading] = useState(false);
 
   const handleGoalsSelection = (goals: FitnessGoal[]) => {
-    setState(onboardingService.setFitnessGoals(goals));
+    try {
+      const newState = onboardingService.setFitnessGoals(goals);
+      setState(newState);
+    } catch (error) {
+      console.error('Error setting fitness goals:', error);
+      Alert.alert('Error', 'Failed to set fitness goals');
+    }
   };
 
   const handleExperienceSelection = (level: ExperienceLevel) => {
-    setState(onboardingService.setExperienceLevel(level));
+    try {
+      const newState = onboardingService.setExperienceLevel(level);
+      setState(newState);
+    } catch (error) {
+      console.error('Error setting experience level:', error);
+      Alert.alert('Error', 'Failed to set experience level');
+    }
   };
 
   const handleEquipmentSelection = (equipment: Equipment[]) => {
-    setState(onboardingService.setAvailableEquipment(equipment));
+    try {
+      const newState = onboardingService.setAvailableEquipment(equipment);
+      setState(newState);
+    } catch (error) {
+      console.error('Error setting equipment:', error);
+      Alert.alert('Error', 'Failed to set equipment');
+    }
   };
 
   const completeOnboarding = async () => {
     setLoading(true);
     try {
+      // Ensure the service state is up to date with the current UI state
+      if (state.fitnessGoals && state.fitnessGoals.length > 0) {
+        onboardingService.setFitnessGoals(state.fitnessGoals);
+      }
+      if (state.experienceLevel) {
+        onboardingService.setExperienceLevel(state.experienceLevel);
+      }
+      if (state.availableEquipment && state.availableEquipment.length > 0) {
+        onboardingService.setAvailableEquipment(state.availableEquipment);
+      }
+
       await onboardingService.completeOnboarding(userId, email, name);
       onOnboardingComplete();
     } catch (error) {
+      console.error('Onboarding completion error:', error);
       Alert.alert('Error', 'Failed to complete onboarding');
     } finally {
       setLoading(false);

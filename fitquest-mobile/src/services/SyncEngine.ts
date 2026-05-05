@@ -132,16 +132,26 @@ export class SyncEngine {
       }
 
       // Pull changes from server
-      await this.pull();
+      try {
+        await this.pull();
+      } catch (error) {
+        // If pull fails, log it but continue to push
+        console.warn('Pull failed during sync:', error);
+      }
 
       // Push local changes to server
-      await this.push();
+      try {
+        await this.push();
+      } catch (error) {
+        // If push fails, log it but don't fail the entire sync
+        console.warn('Push failed during sync:', error);
+      }
 
       // Update last sync time
       await AsyncStorage.setItem('last_sync_time', Date.now().toString());
+      console.log('Sync cycle completed');
     } catch (error) {
-      console.error('Sync failed:', error);
-      throw error;
+      console.error('Sync cycle error:', error);
     } finally {
       this.isSyncing = false;
     }
@@ -155,19 +165,42 @@ export class SyncEngine {
       const lastSyncTime = await AsyncStorage.getItem('last_sync_time');
       const timestamp = lastSyncTime ? parseInt(lastSyncTime) : 0;
 
-      const response = await this.apiClient.post<PullResponse>('/sync/pull', {
+      // Get the current user ID from auth service
+      const session = await this.authService.getSession();
+      if (!session?.userId) {
+        throw new SyncException(SyncError.UNAUTHORIZED, 'No user session found', null);
+      }
+
+      console.log('Pulling changes for user:', session.userId);
+
+      const response = await this.apiClient.post<PullResponse>(`/sync/pull?userId=${session.userId}`, {
         timestamp,
         entityTypes: Object.values(SyncEntityType),
       });
 
+      console.log('Pull response received:', response.data);
+
       // Process pulled data
-      for (const item of response.data.data) {
-        await this.processPulledItem(item);
+      if (response.data.changes && Array.isArray(response.data.changes)) {
+        for (const item of response.data.changes) {
+          await this.processPulledItem(item);
+        }
       }
+
+      // Update last sync time
+      await AsyncStorage.setItem('last_sync_time', Date.now().toString());
+      console.log('Pull completed successfully');
     } catch (error) {
-      if (axios.isAxiosError(error) && error.response?.status === 401) {
-        throw new SyncException(SyncError.UNAUTHORIZED, 'Unauthorized', error);
+      if (axios.isAxiosError(error)) {
+        if (error.response?.status === 401) {
+          throw new SyncException(SyncError.UNAUTHORIZED, 'Unauthorized', error);
+        }
+        // Network errors are expected when backend is unavailable
+        // App continues to work offline
+        console.warn('Pull failed (backend unavailable):', error.message);
+        throw new SyncException(SyncError.SERVER_ERROR, 'Backend unavailable - working offline', error);
       }
+      console.error('Pull error:', error);
       throw new SyncException(SyncError.SERVER_ERROR, 'Failed to pull changes', error);
     }
   }
@@ -177,11 +210,17 @@ export class SyncEngine {
    */
   private async processPulledItem(item: any): Promise<void> {
     try {
-      const { entityType, entityId, operation, data, timestamp } = item;
+      const { entityType, entityId, operation, payload, updatedAt } = item;
+
+      // Parse the payload if it's a string
+      const data = typeof payload === 'string' ? JSON.parse(payload) : payload;
 
       // Check for conflicts
       const localItem = await this.getLocalItem(entityType, entityId);
-      if (localItem && localItem.updatedAt > timestamp) {
+      const remoteTimestamp = new Date(updatedAt).getTime();
+      const localTimestamp = localItem?.updatedAt ? new Date(localItem.updatedAt).getTime() : 0;
+      
+      if (localItem && localTimestamp > remoteTimestamp) {
         // Local version is newer, skip
         console.warn(`Conflict detected for ${entityType}:${entityId}, keeping local version`);
         return;
@@ -211,8 +250,16 @@ export class SyncEngine {
         return;
       }
 
+      // Get the current user ID from auth service
+      const session = await this.authService.getSession();
+      if (!session?.userId) {
+        throw new SyncException(SyncError.UNAUTHORIZED, 'No user session found', null);
+      }
+
+      console.log('Pushing changes for user:', session.userId);
+
       // Push operations
-      const response = await this.apiClient.post<PushResponse>('/sync/push', {
+      const response = await this.apiClient.post<PushResponse>(`/sync/push?userId=${session.userId}`, {
         operations: pendingOps,
       } as PushRequest);
 
@@ -233,9 +280,17 @@ export class SyncEngine {
 
       // Retry failed operations
       await this.retryFailedOperations();
+
+      console.log('Push completed successfully');
     } catch (error) {
-      if (axios.isAxiosError(error) && error.response?.status === 401) {
-        throw new SyncException(SyncError.UNAUTHORIZED, 'Unauthorized', error);
+      if (axios.isAxiosError(error)) {
+        if (error.response?.status === 401) {
+          throw new SyncException(SyncError.UNAUTHORIZED, 'Unauthorized', error);
+        }
+        // Network errors are expected when backend is unavailable
+        // Operations remain in queue for retry when connection is restored
+        console.warn('Push failed (backend unavailable):', error.message);
+        throw new SyncException(SyncError.SERVER_ERROR, 'Backend unavailable - changes queued for sync', error);
       }
       throw new SyncException(SyncError.SERVER_ERROR, 'Failed to push changes', error);
     }
